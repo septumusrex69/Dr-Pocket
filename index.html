@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dr Pocket</title>
+<meta name="description" content="Explore the whole human body in 3D: turn it, peel away layers and tap any part to name it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Dr Pocket</h1>
+    <p>The whole body in 3D. Turn it, peel back layers, and tap any part to name it.</p>
+  </header>
+
+  <div class="grid">
+    <div class="viewer">
+      <div id="stage" aria-label="3D model of the human body. Drag to rotate, pinch or scroll to zoom, tap a part to name it."></div>
+      <div class="loading" id="loading"><span id="loading-t">Loading the body…</span></div>
+      <div class="info" id="info" hidden>
+        <b id="info-n"></b>
+        <span class="info-s" id="info-s"></span>
+        <div class="info-a">
+          <button class="btn" id="info-focus">Zoom to it</button>
+          <button class="btn" id="info-only">Show only this</button>
+          <button class="btn" id="info-hide">Hide it</button>
+        </div>
+        <button class="x" id="info-x" aria-label="Close">×</button>
+      </div>
+      <div class="views" id="views" role="group" aria-label="Zoom to a region"></div>
+    </div>
+
+    <div class="panel">
+      <section class="card">
+        <h2>Find a part</h2>
+        <input type="search" id="q" placeholder="Try femur, liver, biceps…" autocomplete="off" aria-label="Search for a body part">
+        <ul class="results" id="results" hidden></ul>
+      </section>
+
+      <section class="card">
+        <div class="row"><h2>Body systems</h2><button class="btn" id="reset">Reset</button></div>
+        <p class="note">Tap a system to show or hide it. Use “See-through” to look inside it.</p>
+        <ul class="systems" id="systems"></ul>
+        <button class="btn" id="unhide" hidden>Show hidden parts again</button>
+      </section>
+
+      <section class="card">
+        <h2>Walkthroughs</h2>
+        <a class="walk" href="/shoulder/">
+          <b>Shoulder</b>
+          <span>Move the arm, see labrum and rotator cuff tears, and step through the repairs.</span>
+        </a>
+        <p class="note">More joints are coming.</p>
+      </section>
+
+      <section class="card">
+        <p class="note">Anatomy from <a href="https://dbarchive.biosciencedbc.jp/en/bodyparts3d/">BodyParts3D</a>, © The Database Center for Life Science, licensed under <a href="https://creativecommons.org/licenses/by-sa/2.1/jp/deed.en">CC Attribution-Share Alike 2.1 Japan</a>. Shapes were simplified for the web. This is for learning only and does not replace advice from a doctor.</p>
+      </section>
+    </div>
+  </div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

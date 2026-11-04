@@ -1,0 +1,599 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Shoulder Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* Layout: split bench. Live 3D model on the left (fills the screen), controls in a scrolling side panel; on phones the panel sits under the model. Real anatomy loaded from shoulder.glb. */
+:root{
+  --bg:#EDF1EF;--panel:#FFFFFF;--ink:#12201C;--muted:#53655E;--line:#D2DCD7;
+  --accent:#0A7A66;--accent-ink:#FFFFFF;--accent-soft:#D4EDE6;--stage:#D9E1DD;
+  --ok:#14774A;--ok-bg:#DCF1E5;--warn:#A85407;--warn-bg:#FBEACF;--crit:#BD2229;--crit-bg:#F8D9DA;
+  --f-display:'IBM Plex Sans Condensed','Arial Narrow',system-ui,sans-serif;
+  --f-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --f-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D1412;--panel:#14211E;--ink:#E1EBE7;--muted:#91A69F;--line:#263833;
+  --accent:#3BC3A5;--accent-ink:#05221C;--accent-soft:#16392F;--stage:#0B1210;
+  --ok:#5ED29A;--ok-bg:#11332A;--warn:#F0A54A;--warn-bg:#382811;--crit:#F2777C;--crit-bg:#3C191C;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1412;--panel:#14211E;--ink:#E1EBE7;--muted:#91A69F;--line:#263833;
+  --accent:#3BC3A5;--accent-ink:#05221C;--accent-soft:#16392F;--stage:#0B1210;
+  --ok:#5ED29A;--ok-bg:#11332A;--warn:#F0A54A;--warn-bg:#382811;--crit:#F2777C;--crit-bg:#3C191C;color-scheme:dark}
+html{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;height:100%;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));padding-block:10px 10px}
+.wrap{max-width:1500px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
+header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+header h1{font-family:var(--f-display);font-weight:600;font-size:22px;line-height:1.1;margin:0;letter-spacing:.005em}
+header .back{font:500 13px/1 var(--f-body);color:var(--accent);text-decoration:none;padding:6px 0}
+header p{margin:0;color:var(--muted);font-size:13px}
+.grid{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,54fr) minmax(0,46fr);gap:10px}
+@media (min-width:760px),(orientation:landscape) and (min-width:560px){.grid{grid-template-columns:minmax(0,1fr) clamp(300px,34vw,420px);grid-template-rows:minmax(0,1fr)}}
+.viewer{position:relative;border-radius:14px;overflow:hidden;background:var(--stage);border:1px solid var(--line);min-width:0;min-height:0}
+#stage{position:absolute;inset:0;touch-action:none}
+#stage canvas{display:block;width:100%;height:100%;cursor:grab}
+.loading[hidden]{display:none}
+.loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;pointer-events:none}
+.hud{position:absolute;left:10px;top:10px;right:10px;display:flex;pointer-events:none}
+.pill{display:inline-flex;align-items:flex-start;gap:8px;padding:7px 11px;border-radius:12px;font-size:13px;line-height:1.35;background:var(--ok-bg);color:var(--ok);max-width:100%}
+.pill[data-lvl="warn"]{background:var(--warn-bg);color:var(--warn)}
+.pill[data-lvl="crit"]{background:var(--crit-bg);color:var(--crit)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none;margin-top:5px}
+.views{position:absolute;left:10px;right:10px;bottom:10px;display:flex;gap:6px;flex-wrap:wrap}
+.views button,.btn{font:500 13px/1 var(--f-body);padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.views button{font-size:12px;padding:8px 10px}
+.btn:hover,.views button:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn:disabled{opacity:.45;cursor:default}
+.info{position:absolute;left:10px;bottom:52px;right:10px;max-width:400px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 40px 11px 12px;font-size:14px;line-height:1.45}
+.info b{display:block;font-family:var(--f-display);font-weight:600;font-size:17px;margin-bottom:2px}
+.info .x{position:absolute;top:6px;right:6px;width:30px;height:30px;border:0;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;border-radius:6px}
+.panel{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px;min-width:0;flex:none}
+.chips.scroll{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.chips.scroll .chip{flex:none}
+h2{font-family:var(--f-display);font-weight:600;font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:500 13px/1 var(--f-body);padding:9px 12px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chip.layer[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent-soft);color:var(--accent)}
+.chip.layer[aria-pressed="false"]{color:var(--muted);text-decoration:line-through}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px;align-self:flex-start}
+.seg button{font:500 13px/1 var(--f-body);padding:8px 12px;border:0;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.step-n{font-family:var(--f-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.prog{display:flex;gap:4px}
+.prog i{flex:1;height:4px;border-radius:2px;background:var(--line)}
+.prog i.on{background:var(--accent)}
+.step-t{font-family:var(--f-display);font-weight:600;font-size:19px;line-height:1.2;margin:2px 0 0;text-wrap:balance}
+.step-d{margin:0;max-width:62ch}
+.nav{display:flex;gap:8px;margin-top:2px}
+.slider{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center}
+.slider label{font-size:14px}
+.slider output{font-family:var(--f-mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;min-width:8ch}
+.slider input{grid-column:1/-1;width:100%;accent-color:var(--accent);margin:2px 0}
+.note{font-size:12.5px;color:var(--muted);margin:0;max-width:62ch}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block;border:1px solid var(--line)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:520px){header p{display:none}.step-d{font-size:14px}}
+</style>
+
+<div class="wrap">
+  <header>
+    <a class="back" href="/">&larr; Whole body</a>
+    <h1>Shoulder Lab</h1>
+    <p>Turn it, move the arm, and step through the surgery.</p>
+  </header>
+
+  <div class="grid">
+    <div class="viewer">
+      <div id="stage" aria-label="3D model of a right shoulder. Drag to rotate, pinch or scroll to zoom, tap a part to name it."></div>
+      <div class="loading" id="loading"><span id="loading-t">Loading anatomy…</span></div>
+      <div class="hud"><div class="pill" id="status" data-lvl="ok" role="status"><span class="dot"></span><span id="status-t">Stable. The ball is centred in the socket.</span></div></div>
+      <div class="info" id="info" hidden><b id="info-n"></b><span id="info-d"></span><button class="x" id="info-x" aria-label="Close">×</button></div>
+      <div class="views" role="group" aria-label="Camera views">
+        <button data-view="overview">Overview</button><button data-view="front">Front</button><button data-view="side">Into socket</button><button data-view="back">Back</button><button data-view="top">Top</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <section class="card">
+        <h2>Case</h2>
+        <div class="chips scroll" id="cases" role="group" aria-label="Choose a case"></div>
+      </section>
+
+      <section class="card" aria-live="polite">
+        <div class="row"><h2 id="case-name">Healthy shoulder</h2><span class="step-n" id="step-n">1 / 5</span></div>
+        <div class="prog" id="prog"></div>
+        <h3 class="step-t" id="step-t"></h3>
+        <p class="step-d" id="step-d"></p>
+        <div class="nav"><button class="btn" id="prev">Back</button><button class="btn primary" id="next">Next step</button></div>
+      </section>
+
+      <section class="card">
+        <div class="row"><h2>Move the arm</h2><button class="btn" id="reset-pose">Reset arm</button></div>
+        <div class="slider"><label for="abd">Lift sideways</label><output id="abd-o">0°</output><input type="range" id="abd" min="0" max="170" step="1" value="0"></div>
+        <div class="slider"><label for="flex">Lift forward</label><output id="flex-o">0°</output><input type="range" id="flex" min="0" max="170" step="1" value="0"></div>
+        <div class="slider"><label for="rot">Turn in / out</label><output id="rot-o">0°</output><input type="range" id="rot" min="-70" max="90" step="1" value="0"></div>
+      </section>
+
+      <section class="card">
+        <div class="row"><h2>Layers</h2>
+          <div class="seg" role="group" aria-label="Colours"><button id="pal-teach" aria-pressed="true">Teaching colours</button><button id="pal-natural" aria-pressed="false">Natural colours</button></div></div>
+        <div class="chips" id="layers" role="group" aria-label="Show or hide layers"></div>
+        <div class="legend" id="legend"></div>
+        <p class="note">Anatomy from <a href="https://github.com/Z-Anatomy/The-blend">Z-Anatomy</a>, based on BodyParts3D, used under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>. Shapes were reduced for the web, and the movement and conditions are simulated. Surgical details vary between surgeons; this does not replace advice from your own surgeon. This page is shared under the same licence.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="shoulder-model.js"></script>
+<script>
+(function(){
+const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+const rad=d=>d*Math.PI/180;
+const cl01=v=>Math.max(0,Math.min(1,v));
+const sm=x=>{x=cl01(x);return x*x*(3-2*x);};
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim()||'#888888';
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $=id=>document.getElementById(id);
+const lin=h=>new THREE.Color(h).convertSRGBToLinear();
+
+/* ---------- landmarks measured from the Z-Anatomy meshes (decimetres, origin = centre of the humeral head) ---------- */
+const R=0.2363;
+const GN=V(-0.8521,-0.2175,0.476).normalize();           /* from the socket towards the ball (points outward) */
+const UP=V(0,1,0).addScaledVector(GN,-GN.y).normalize(); /* 12 o'clock on the socket */
+const FR=new THREE.Vector3().crossVectors(GN,UP).normalize(); /* 3 o'clock = front on a right shoulder */
+if(FR.z<0)FR.negate();
+
+/* ---------- renderer ---------- */
+const stageEl=$('stage');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+stageEl.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(32,1,0.02,80);
+const controls=new THREE.OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;controls.dampingFactor=.12;controls.rotateSpeed=.45;controls.zoomSpeed=.5;controls.panSpeed=.5;controls.minDistance=.5;controls.maxDistance=14;
+function setBg(){try{scene.background=lin(css('--stage'));}catch(e){}}
+setBg();matchMedia('(prefers-color-scheme: dark)').addEventListener('change',setBg);
+new MutationObserver(setBg).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+function env(){const es=new THREE.Scene();const g=new THREE.SphereGeometry(10,32,16);const c=[];const p=g.attributes.position;
+  for(let i=0;i<p.count;i++){const y=p.getY(i)/10;const k=.35+.65*cl01((y+1)/2);c.push(k,k*.98,k*.96);}
+  g.setAttribute('color',new THREE.Float32BufferAttribute(c,3));
+  es.add(new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.BackSide})));
+  [[6,6,6],[-7,3,4],[0,-6,-6]].forEach((q,i)=>{const pl=new THREE.Mesh(new THREE.PlaneGeometry(5,5),new THREE.MeshBasicMaterial({color:new THREE.Color(1,1,1).multiplyScalar(i===0?3:1.4),side:THREE.DoubleSide}));pl.position.set(q[0],q[1],q[2]);pl.lookAt(0,0,0);es.add(pl);});
+  const pm=new THREE.PMREMGenerator(renderer);scene.environment=pm.fromScene(es,0.04).texture;pm.dispose();}
+setTimeout(()=>{try{env();}catch(e){}},300);
+scene.add(new THREE.HemisphereLight(0xffffff,0x4d5a57,0.4));
+const key=new THREE.DirectionalLight(0xfff4e8,1.1);key.position.set(-6,9,8);scene.add(key);
+const fill=new THREE.DirectionalLight(0xe8f0ff,0.4);fill.position.set(7,3,-6);scene.add(fill);
+
+/* ---------- palettes and materials ---------- */
+const PAL={
+  natural:{bone:'#E4D7BD',cart:'#D5E5EE',lab:'#E8D6C4',mus:'#A3352C',ten:'#EEE8DB',cap:'#EFE7DB',capOp:.3,costal:'#D9E2E6'},
+  teach:{bone:'#E6DCC4',cart:'#4FA3E0',lab:'#16A383',mus:'#C9604F',ten:'#F4EEE2',cap:'#7FB6DA',capOp:.28,costal:'#A9CDE6'}};
+const TEACH_MUS={'Supraspinatus muscle':'#E2774A','Infraspinatus muscle':'#C4523A','Teres minor muscle':'#A8443A','Subscapularis muscle':'#DC9A55',
+ 'Clavicular part of deltoid muscle':'#9C3B3B','Acromial part of deltoid muscle':'#933636','Scapular spinal part of deltoid muscle':'#8A3232',
+ 'Long head of biceps brachii':'#C24D6E','Short head of biceps brachii':'#B04466','Coracobrachialis muscle':'#9C5A7E',
+ 'Clavicular head of pectoralis major muscle':'#8F4E40','Sternocostal head of pectoralis major muscle':'#86483B','Teres major muscle':'#7C4A45','Pectoralis minor muscle':'#8A5B4B'};
+let pal='teach';const WORN='#C8B585',TORN='#DD3B3A';
+const std=o=>new THREE.MeshStandardMaterial(Object.assign({roughness:.6,metalness:0,envMapIntensity:.7},o));
+const phys=o=>new THREE.MeshPhysicalMaterial(Object.assign({roughness:.22,clearcoat:.7,clearcoatRoughness:.2,side:THREE.DoubleSide,envMapIntensity:.9},o));
+const mBone=std({roughness:.7}),mHum=std({roughness:.7}),mCostal=std({roughness:.45});
+const mMus=std({vertexColors:true,roughness:.5});
+const mLab=std({vertexColors:true,roughness:.45});
+const mLig=std({vertexColors:true,roughness:.4});
+const mCap=std({vertexColors:true,transparent:true,opacity:.3,depthWrite:false,roughness:.35,side:THREE.DoubleSide});
+const mGlenCart=phys({}),mHeadCart=phys({});
+const mMetal=std({color:lin('#C9D1D6'),metalness:.95,roughness:.18,envMapIntensity:1.2});
+const mPoly=phys({color:lin('#F4F3EC'),roughness:.35,clearcoat:.3});
+const mAnchor=std({color:lin('#9AA3A8'),metalness:.6,roughness:.3});
+const mSuture=std({color:lin('#2F6FE4'),roughness:.4});
+const mPrep=std({color:lin('#D9792A'),roughness:.5,emissive:lin('#2a1200')});
+const mScope=std({color:lin('#5A646A'),metalness:.8,roughness:.25});
+const mHot=new THREE.MeshBasicMaterial({color:lin('#E23B3B'),transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide});
+const wornTex=(function(){const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');let s=11;const r=()=>(s=(s*16807)%2147483647)/2147483647;
+  g.fillStyle='#fff';g.fillRect(0,0,256,256);g.fillStyle='#000';for(let i=0;i<90;i++){g.beginPath();g.ellipse(r()*256,r()*256,6+r()*22,4+r()*14,r()*3,0,7);g.fill();}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;})();
+
+/* ---------- registry ---------- */
+const picks=[],layered=[];
+function reg(m,name,info,layers){m.userData.name=name;m.userData.info=info||'';m.userData.layers=layers||[];m.userData.show=true;picks.push(m);layered.push(m);return m;}
+function ball(p,r,mat){const m=new THREE.Mesh(new THREE.SphereGeometry(r,20,14),mat);m.position.copy(p);return m;}
+function tube(pts,r,mat){return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),24,r,8,false),mat);}
+
+/* hierarchy: the shoulder blade swings on the chest; the arm sits in the socket */
+const PIV=V(1.3,0.4,-0.1);
+const pivot=new THREE.Group();pivot.position.copy(PIV);scene.add(pivot);
+const scap=new THREE.Group();scap.position.copy(PIV).negate();pivot.add(scap);
+const arm=new THREE.Group();scap.add(arm);
+
+/* spherical cap shell around the head centre, axis a, half-angle al, ellipse k across (front/back), pear narrows the top */
+function capGeo(r,a,al,k,pearAmt){const n=26,m=48,pos=[],uv=[],idx=[];const u=V(0,1,0).addScaledVector(a,-a.y);if(u.lengthSq()<1e-6)u.set(1,0,0);u.normalize();const f=new THREE.Vector3().crossVectors(a,u).normalize();
+  for(let i=0;i<=n;i++){const th=al*i/n;for(let j=0;j<=m;j++){const ph=j/m*Math.PI*2;const c=Math.cos(ph),s=Math.sin(ph);const pr=1-(pearAmt||0)*Math.max(0,c);
+    const d=a.clone().multiplyScalar(Math.cos(th)).add(u.clone().multiplyScalar(c*Math.sin(th))).add(f.clone().multiplyScalar(s*Math.sin(th)*k*pr)).normalize().multiplyScalar(r);
+    pos.push(d.x,d.y,d.z);uv.push(j/m*3,i/n*3);}}
+  for(let i=0;i<n;i++)for(let j=0;j<m;j++){const p=i*(m+1)+j,q=p+m+1;idx.push(p,q,p+1,q,q+1,p+1);}
+  const g=new THREE.BufferGeometry();g.setIndex(idx);g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.computeVertexNormals();return g;}
+let glenCart=null,headCart=null;
+const metalHead=reg(new THREE.Mesh(new THREE.SphereGeometry(R*1.05,48,32),mMetal),'Metal head (implant)','A polished cobalt-chrome ball that replaces the worn humeral head.',['humerus']);metalHead.userData.show=false;arm.add(metalHead);
+const hotMesh=new THREE.Mesh(new THREE.CircleGeometry(R*.32,32),mHot);scap.add(hotMesh);
+
+/* ---------- names and descriptions for the real meshes ---------- */
+const INFO={
+ 'Scapula':['Scapula (shoulder blade)','The shoulder blade. It carries the socket and anchors all four rotator cuff muscles. It rotates over the ribs as you lift your arm.','bones'],
+ 'Clavicle':['Clavicle (collarbone)','An S-shaped strut holding the shoulder out from the chest. It joins the acromion at the AC joint.','bones'],
+ 'Humerus':['Humerus','The upper arm bone. Its rounded head is the ball of the shoulder joint.','humerus'],
+ 'Radius':['Radius','Forearm bone on the thumb side. The biceps attaches to it.','humerus'],
+ 'Ulna':['Ulna','Forearm bone on the little-finger side.','humerus'],
+ 'Manubrium of sternum':['Sternum (breastbone)','The collarbone joins it at the sternoclavicular joint, the only bony link between arm and body.','ribs'],
+ 'Body of sternum':['Sternum (breastbone)','The front of the ribcage. Pectoralis major starts here.','ribs'],
+ 'Glenoid cartilage':['Glenoid cartilage','Smooth cartilage lining the socket. It has no blood supply, so it heals poorly once damaged.','gcart'],
+ 'Head cartilage':['Head cartilage','Cartilage covering the ball. It glides on the socket cartilage.','hcart'],
+ 'Glenoid labrum':['Labrum','A ring of tough fibrocartilage fixed to the rim of the socket. It deepens the socket and seals the joint. It is not attached to the ball.','labrum'],
+ 'Articular capsule of glenohumeral joint':['Joint capsule','A sealed sleeve of ligament tissue from the socket rim to the neck of the humerus. Holds the joint fluid and creates a slight suction.','capsule'],
+ 'Coracohumeral ligament':['Coracohumeral ligament','Runs from the coracoid to the top of the humerus and reinforces the top of the capsule.','capsule'],
+ 'Superior glenohumeral ligament':['Superior glenohumeral ligament','A thickening of the front capsule that tightens when the arm hangs.','capsule'],
+ 'Middle glenohumeral ligament':['Middle glenohumeral ligament','A thickening of the front capsule that limits outward rotation.','capsule'],
+ 'Inferior glenohumeral ligament':['Inferior glenohumeral ligament','The main front stabiliser when the arm is up and turned out. It is attached to the labrum, which is why a Bankart tear makes the shoulder unstable.','capsule'],
+ 'Transverse humeral ligament':['Transverse humeral ligament','Bridges the groove at the front of the humerus and holds the biceps tendon in it.','capsule'],
+ 'Supraspinatus muscle':['Supraspinatus','Rotator cuff. Starts the lift and holds the ball down while the deltoid raises the arm. The most commonly torn cuff tendon.','cuff'],
+ 'Infraspinatus muscle':['Infraspinatus','Rotator cuff. Turns the arm outward and holds the ball back in the socket.','cuff'],
+ 'Teres minor muscle':['Teres minor','Rotator cuff. Helps turn the arm outward.','cuff'],
+ 'Subscapularis muscle':['Subscapularis','Rotator cuff. The largest cuff muscle. Turns the arm inward and guards the front of the joint. Detached and repaired during a replacement.','cuff'],
+ 'Clavicular part of deltoid muscle':['Deltoid (front)','The front part of the big outer muscle. Lifts the arm forward.','deltoid'],
+ 'Acromial part of deltoid muscle':['Deltoid (middle)','The middle part of the big outer muscle. Lifts the arm sideways. It needs the cuff to keep the ball centred.','deltoid'],
+ 'Scapular spinal part of deltoid muscle':['Deltoid (back)','The back part of the big outer muscle. Pulls the arm backward.','deltoid'],
+ 'Long head of biceps brachii':['Biceps (long head)','Its tendon starts on top of the labrum (the biceps anchor), arches over the ball and runs down a groove at the front of the humerus.','biceps'],
+ 'Short head of biceps brachii':['Biceps (short head)','Starts on the tip of the coracoid and joins the long head halfway down the arm.','biceps'],
+ 'Coracobrachialis muscle':['Coracobrachialis','Runs from the coracoid to the inside of the humerus. Helps pull the arm forward and in.','outer'],
+ 'Clavicular head of pectoralis major muscle':['Pectoralis major (upper)','Chest muscle. Pulls the arm forward and across the body.','outer'],
+ 'Sternocostal head of pectoralis major muscle':['Pectoralis major (lower)','Chest muscle. Pulls the arm down and across the body, and turns it inward.','outer'],
+ 'Teres major muscle':['Teres major','Pulls the arm down and in. Not part of the rotator cuff.','outer'],
+ 'Pectoralis minor muscle':['Pectoralis minor','Runs from the ribs to the coracoid and holds the shoulder blade against the chest.','outer'],
+};
+const GRP={gcart:['cartilage'],hcart:['humerus','cartilage'],bones:['bones'],humerus:['humerus'],ribs:['ribs'],labrum:['labrum'],capsule:['capsule'],cuff:['cuff'],deltoid:['deltoid'],biceps:['biceps'],outer:['outer']};
+const BASEMOVE={cuff:['scap','arm'],deltoid:['scap','arm'],biceps:['scap','arm'],capsule:['scap','arm'],labrum:['scap','scap'],
+  'Coracobrachialis muscle':['scap','arm'],'Teres major muscle':['scap','arm'],'Clavicular head of pectoralis major muscle':['thorax','arm'],'Sternocostal head of pectoralis major muscle':['thorax','arm'],'Pectoralis minor muscle':['thorax','scap'],'Transverse humeral ligament':['arm','arm']};
+
+const M={};const deformables=[];let labMesh=null,humMesh=null;
+let GT=V(-.22,.15,0),SHAFT0=V(-.1,-.6,0),SHAFT1=V(-.3,-2.4,0),LC=V(.17,.04,-.09),LRY=.18,LRZ=.13;
+
+/* ---------- surgical hardware (placed once the meshes are measured) ---------- */
+let lp=(th,off,dx)=>V(0,0,0);
+const HW={};
+function buildHardware(){
+  lp=(th,off,dx)=>LC.clone().add(UP.clone().multiplyScalar(Math.cos(th)*(LRY+(off||0)))).add(FR.clone().multiplyScalar(Math.sin(th)*(LRZ+(off||0)))).add(GN.clone().multiplyScalar(dx||0));
+  function glenAnchors(thetas){return thetas.map(t=>{const th=rad(t);
+    const a=reg(ball(lp(th,-0.035,-0.02),.022,mAnchor),'Suture anchor','A small anchor drilled into the bone of the socket rim. It carries the repair sutures.',['labrum']);
+    const s=reg(tube([a.position.clone(),lp(th-0.1,0.0,0.03),lp(th,0.03,0.05),lp(th+0.1,0.0,0.03),lp(th+0.05,-0.035,-0.02)],.008,mSuture),'Suture','High-strength suture passed through the labrum and capsule.',['labrum']);
+    const k=reg(ball(lp(th,0.035,0.05),.016,mSuture),'Knot','Tied knot holding the labrum down on the rim.',['labrum']);
+    [a,s,k].forEach(m=>{m.userData.show=false;scap.add(m);});return {a,s,k};});}
+  HW.bank=glenAnchors([165,135,105]);HW.slap=glenAnchors([-30,30]);
+  function prepArc(t0,t1){const pts=[];for(let k=0;k<=10;k++)pts.push(lp(rad(t0+(t1-t0)*k/10),-0.035,-0.015));const m=reg(tube(pts,.018,mPrep),'Prepared bone','Roughened, bleeding bone so the repair can heal.',['labrum']);m.userData.show=false;scap.add(m);return m;}
+  HW.prepBank=prepArc(90,185);HW.prepSlap=prepArc(-45,45);
+  const gtd=GT.clone().normalize(),side=new THREE.Vector3().crossVectors(gtd,V(0,1,0)).normalize();
+  const med=[-1,1].map(s=>V(0,1,0).multiplyScalar(.5).add(gtd.clone().multiplyScalar(.5)).normalize().multiplyScalar(R*1.04).addScaledVector(side,s*.05));
+  const lat=[-1,1].map(s=>GT.clone().addScaledVector(gtd,.01).add(V(0,-.05,0)).addScaledVector(side,s*.06));
+  HW.cuff=med.concat(lat).map(p=>{const a=reg(ball(p,.022,mAnchor),'Suture anchor','Anchor in the greater tuberosity. Double-row repairs use a medial and a lateral row.',['humerus']);a.userData.show=false;arm.add(a);return a;});
+  HW.cuffSut=[];med.forEach(m=>lat.forEach(l=>{const mid=m.clone().add(l).multiplyScalar(.5);mid.add(mid.clone().normalize().multiplyScalar(.05));
+    const s=reg(tube([m,mid,l],.008,mSuture),'Suture bridge','Sutures crossed from the medial row to the lateral row, pressing the tendon flat onto bone.',['humerus']);s.userData.show=false;arm.add(s);HW.cuffSut.push(s);}));
+  const pc=new THREE.Mesh(new THREE.SphereGeometry(.09,24,12),mPrep);pc.position.copy(V(0,1,0).multiplyScalar(.3).add(gtd.clone().multiplyScalar(.7)).normalize().multiplyScalar(R*1.08));pc.lookAt(0,0,0);pc.scale.set(1,1,.3);
+  HW.prepCuff=reg(pc,'Tendon footprint','Cleaned bone on the greater tuberosity where the tendon will heal.',['humerus']);pc.userData.show=false;arm.add(pc);
+  HW.teno=SHAFT0.clone().lerp(SHAFT1,.32).add(V(-.02,0,.1));
+  HW.tenoA=reg(ball(HW.teno,.024,mAnchor),'Tenodesis anchor','The biceps tendon is fixed here, lower on the humerus, instead of on the labrum.',['biceps']);HW.tenoA.userData.show=false;arm.add(HW.tenoA);
+  const sd=SHAFT1.clone().sub(SHAFT0).normalize();
+  HW.stem=reg(tube([V(0,0,0).addScaledVector(sd,.15),SHAFT0.clone(),SHAFT0.clone().lerp(SHAFT1,.55)],.06,mMetal),'Humeral stem (implant)','A metal stem fixed down the shaft that holds the new ball. Stemless versions anchor only in the top of the bone.',['humerus']);HW.stem.userData.show=false;arm.add(HW.stem);
+  HW.osteo=[];[[0],[.5],[-.5],[1],[-1]].forEach(([s],i)=>{const d=V(0,-1,0).addScaledVector(GN,-.6).normalize();const p=d.multiplyScalar(R*.98).addScaledVector(FR,s*.07);const b=reg(ball(p,.035,mBone),'Bone spur (osteophyte)','Extra bone that grows around the edge of an arthritic joint. It blocks movement.',['humerus']);b.scale.set(1.3,.7,1.3);b.userData.show=false;arm.add(b);HW.osteo.push(b);});
+  const sa=V(-.05,.05,-1.9),sb=V(-.02,.02,-.3),ca=V(-.2,-.1,1.9),cb=V(-.08,-.05,.32);
+  HW.scope=[reg(tube([sa,sb],.02,mScope),'Arthroscope','The camera, put in through a small cut at the back of the shoulder.',['tools']),reg(tube([ca,cb],.03,mScope),'Working cannula','A tube through a small cut at the front for instruments, anchors and sutures.',['tools'])];
+  HW.scope.forEach(m=>{m.userData.show=false;scap.add(m);});
+  HW.spur=reg(new THREE.Mesh(new THREE.ConeGeometry(.035,.09,14),mBone),'Acromial spur','A bony spur under the acromion that can rub on the supraspinatus tendon.',['bones']);HW.spur.rotation.z=Math.PI;HW.spur.position.copy(V(-.05,R*1.55,.06));scap.add(HW.spur);
+  HW.imp=new THREE.Mesh(new THREE.SphereGeometry(.07,20,12),new THREE.MeshBasicMaterial({color:lin('#E23B3B'),transparent:true,opacity:0,depthWrite:false}));HW.imp.position.copy(V(-.03,R*1.5,.02));scap.add(HW.imp);
+}
+
+/* ---------- load the anatomy ---------- */
+const loadEl=$('loading');
+function onModel(gltf){
+  const meshes=[];gltf.scene.traverse(o=>{if(o.isMesh)meshes.push(o);});
+  meshes.forEach(o=>{
+    const nm=o.name.replace(/^Z_/,'').replace(/_/g,' ').trim();
+    o.updateWorldMatrix(true,false);const g=o.geometry.clone();g.applyMatrix4(o.matrixWorld);
+    const rib=/rib$/i.test(nm),cost=/^Costal cartilage/.test(nm);
+    const inf=INFO[nm]||(rib?['Rib','The ribcage. The shoulder blade glides over the back of it.','ribs']:cost?['Costal cartilage','Cartilage joining the ribs to the breastbone.','ribs']:[nm,'','bones']);
+    const grp=inf[2];let mesh;
+    const isSoft=['cuff','deltoid','biceps','capsule','outer','labrum'].indexOf(grp)>=0&&nm!=='Transverse humeral ligament';
+    if(isSoft){
+      const bm=BASEMOVE[nm]||BASEMOVE[grp];const n=g.attributes.position.count;const uv=g.attributes.uv;const w=new Float32Array(n);for(let i=0;i<n;i++)w[i]=uv?uv.getX(i):0;
+      g.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(n*3).fill(1),3));
+      const mat=grp==='labrum'?mLab:grp==='capsule'?(/ligament/.test(nm)?mLig:mCap):mMus;
+      mesh=new THREE.Mesh(g,mat);scene.add(mesh);
+      if(grp==='labrum'){g.computeVertexNormals();const pp=g.attributes.position.array,nn=g.attributes.normal.array;for(let i=0;i<pp.length;i++)pp[i]+=nn[i]*.022;for(let i=0;i<pp.length;i+=3){pp[i]+=GN.x*.018;pp[i+1]+=GN.y*.018;pp[i+2]+=GN.z*.018;}}
+      const rest=g.attributes.position.array.slice(0);
+      const tf=new Float32Array(n);for(let i=0;i<n;i++){const y=rest[i*3+1],d=Math.hypot(rest[i*3],y,rest[i*3+2]);let t=0;
+        if(grp==='cuff')t=sm((R*1.5-d)/(R*.3));
+        else if(nm==='Long head of biceps brachii')t=Math.max(sm((y+.62)/.14),sm((-2.5-y)/.12));
+        else if(nm==='Short head of biceps brachii')t=Math.max(sm((y+.8)/.14),sm((-2.5-y)/.12));
+        else if(grp==='outer')t=sm((w[i]-.88)/.08);
+        tf[i]=t;}
+      const d0=new Float32Array(n);for(let i=0;i<n;i++)d0[i]=Math.hypot(rest[i*3],rest[i*3+1],rest[i*3+2]);
+      Object.assign(mesh.userData,{soft:true,key:nm,grp,base:bm[0],move:bm[1],rest,w,d0,tf});
+      if(grp==='labrum'){labMesh=mesh;const th=new Float32Array(n);const c=V(0,0,0);for(let i=0;i<n;i++)c.add(V(rest[i*3],rest[i*3+1],rest[i*3+2]));c.multiplyScalar(1/n);LC.copy(c);
+        let ry=0,rz=0;for(let i=0;i<n;i++){const d=V(rest[i*3],rest[i*3+1],rest[i*3+2]).sub(c);const a=d.dot(UP),b=d.dot(FR);ry=Math.max(ry,Math.abs(a));rz=Math.max(rz,Math.abs(b));th[i]=Math.atan2(b,a);}
+        LRY=ry*.85;LRZ=rz*.85;mesh.userData.theta=th;}
+      deformables.push(mesh);
+    }else{
+      const mat=grp==='gcart'?mGlenCart:grp==='hcart'?mHeadCart:grp==='humerus'?(nm==='Humerus'?mHum:mBone):cost?mCostal:mBone;
+      if(grp==='gcart'||grp==='hcart'){const p=g.attributes.position,uvs=[];for(let i=0;i<p.count;i++){const q=V(p.getX(i),p.getY(i),p.getZ(i));uvs.push(q.dot(FR)*9,q.dot(UP)*9);}g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));}
+      mesh=new THREE.Mesh(g,mat);
+      if(grp==='gcart')glenCart=mesh;if(grp==='hcart')headCart=mesh;
+      if(grp==='humerus'||grp==='hcart'||nm==='Transverse humeral ligament')arm.add(mesh);else if(grp==='bones'||grp==='gcart')scap.add(mesh);else scene.add(mesh);
+      if(nm==='Humerus'){humMesh=mesh;const p=g.attributes.position;let best=-1e9;const a=V(0,0,0),b=V(0,0,0);let na=0,nb=0;
+        for(let i=0;i<p.count;i++){const x=p.getX(i),y=p.getY(i),z=p.getZ(i);if(y>-0.4){const s=-x+0.5*y;if(s>best){best=s;GT.set(x,y,z);}}
+          if(y<-.7&&y>-1.1){a.add(V(x,y,z));na++;}if(y<-2.2&&y>-2.6){b.add(V(x,y,z));nb++;}}
+        if(na)SHAFT0.copy(a.multiplyScalar(1/na));if(nb)SHAFT1.copy(b.multiplyScalar(1/nb));}
+    }
+    mesh.geometry.computeVertexNormals();
+    reg(mesh,inf[0],inf[1],nm==='Transverse humeral ligament'?['capsule']:(GRP[grp]||['bones']));
+  });
+  buildHardware();applyPalette();goStep(0);view('overview',true);
+  loadEl.hidden=true;ready=true;
+}
+function loadModel(){try{const s=atob(window.SHOULDER_GLB);const buf=new Uint8Array(s.length);for(let i=0;i<s.length;i++)buf[i]=s.charCodeAt(i);
+  new THREE.GLTFLoader().parse(buf.buffer,'',onModel,()=>{$('loading-t').textContent='The anatomy model could not be loaded. Reload the page to try again.';});}
+  catch(e){$('loading-t').textContent='The anatomy model could not be loaded. Reload the page to try again.';}}
+if(window.SHOULDER_GLB)setTimeout(loadModel,30);else window.addEventListener('load',()=>{if(window.SHOULDER_GLB)loadModel();else $('loading-t').textContent='The anatomy model could not be loaded. Reload the page to try again.';});
+let ready=false;
+
+/* ---------- state ---------- */
+const DEF={cond:'healthy',torn:false,repaired:false,anchors:false,sutures:false,scope:false,prep:false,decompress:false,worn:false,replaced:false,tenodesis:false,tight:false};
+let S=Object.assign({},DEF);
+const POSE={abd:0,flex:0,rot:0};
+let T=V(0,0,0),Tt=V(0,0,0),hot=0,hotT=0,peel=0;
+const LNAMES=[['bones','Shoulder blade'],['humerus','Arm bones'],['cartilage','Cartilage'],['labrum','Labrum'],['capsule','Capsule'],['cuff','Rotator cuff'],['deltoid','Deltoid'],['biceps','Biceps'],['outer','Chest and back'],['ribs','Ribcage']];
+const userL={bones:true,humerus:true,cartilage:true,labrum:true,capsule:true,cuff:true,deltoid:true,biceps:true,outer:true,ribs:true,tools:true};
+let stepL={};
+const L=()=>Object.assign({},userL,stepL);
+function applyVis(){const l=L();layered.forEach(m=>{m.visible=m.userData.show!==false&&m.userData.layers.every(k=>l[k]);});renderLayers();}
+
+function applyPalette(){const P=PAL[pal];
+  [mBone,mHum].forEach(m=>m.color.copy(lin(P.bone)));mCostal.color.copy(lin(P.costal));mCap.opacity=P.capOp;
+  $('pal-natural').setAttribute('aria-pressed',pal==='natural');$('pal-teach').setAttribute('aria-pressed',pal==='teach');
+  const lg=[['bone','Bone'],['cart','Cartilage'],['lab','Labrum'],['mus','Muscle'],['ten','Tendon and ligament']];
+  $('legend').innerHTML=lg.map(([k,n])=>'<span><i style="background:'+P[k]+'"></i>'+n+'</span>').join('')+'<span><i style="background:'+TORN+'"></i>Torn or overloaded</span><span><i style="background:#2F6FE4"></i>Suture</span>';
+  applyState();}
+$('pal-natural').onclick=()=>{pal='natural';applyPalette();};
+$('pal-teach').onclick=()=>{pal='teach';applyPalette();};
+
+function applyState(){if(!HW.bank)return;
+  const b=S.cond==='bankart',sl=S.cond==='slap',cu=S.cond==='cuff',oa=S.cond==='oa';
+  HW.bank.forEach(h=>{h.a.userData.show=b&&S.anchors;h.s.userData.show=b&&S.sutures;h.k.userData.show=b&&S.sutures;});
+  HW.slap.forEach(h=>{h.a.userData.show=sl&&S.anchors&&!S.tenodesis;h.s.userData.show=sl&&S.sutures&&!S.tenodesis;h.k.userData.show=sl&&S.sutures&&!S.tenodesis;});
+  HW.cuff.forEach(a=>a.userData.show=cu&&S.anchors);HW.cuffSut.forEach(s=>s.userData.show=cu&&S.sutures);
+  HW.prepBank.userData.show=b&&S.prep&&!S.sutures;HW.prepSlap.userData.show=sl&&S.prep&&!S.sutures;HW.prepCuff.userData.show=cu&&S.prep&&!S.anchors;
+  HW.scope.forEach(m=>m.userData.show=S.scope);HW.spur.userData.show=cu&&!S.decompress;HW.tenoA.userData.show=S.tenodesis;
+  HW.osteo.forEach(o=>o.userData.show=S.worn&&!S.replaced);
+  const rep=oa&&S.replaced;
+  headCart.userData.show=!rep;metalHead.userData.show=rep;HW.stem.userData.show=rep;
+  mHum.transparent=rep;mHum.opacity=rep?.35:1;mHum.depthWrite=!rep;mHum.needsUpdate=true;
+  glenCart.material=rep?mPoly:mGlenCart;
+  glenCart.userData.name=rep?'Plastic glenoid (implant)':'Glenoid cartilage';
+  glenCart.userData.info=rep?'A polyethylene component cemented into the prepared socket. The metal ball glides on it.':'Smooth cartilage lining the socket. It has no blood supply, so it heals poorly once damaged.';
+  const w=S.worn&&!rep;
+  [mGlenCart,mHeadCart].forEach(m=>{m.alphaMap=w?wornTex:null;m.alphaTest=w?.5:0;m.color.copy(lin(w?WORN:PAL[pal].cart));m.needsUpdate=true;});
+  applyVis();lastKey='';}
+
+/* ---------- what each condition does to the joint ---------- */
+let lastStatus='';
+function evaluate(){
+  let abd=POSE.abd,flex=POSE.flex,rot=POSE.rot;
+  const act=S.torn&&!S.repaired;let lvl='ok',txt='Stable. The ball is centred in the socket.';
+  Tt.set(0,0,0);hotT=0;let peelT=0,imp=0;
+  if(S.cond==='bankart'){
+    if(act){const side=Math.hypot(abd,flex)*Math.cos(Math.atan2(flex,abd||1e-6));const r=cl01((side-45)/45)*cl01((rot-15)/55);
+      Tt.copy(FR).multiplyScalar(1.0*R*r).addScaledVector(UP,-.3*R*r).addScaledVector(GN,.05*R*r);hotT=r>.1?.5+.4*r:0;
+      if(r>.8){lvl='crit';txt='Dislocated. The ball has slid forward over the torn front rim.';}
+      else if(r>.12){lvl='warn';txt='Unstable. The ball is sliding toward the front where the bumper is missing.';}
+      else{lvl='warn';txt='Front of the labrum torn. Try lifting sideways and turning the arm out.';}}
+    else if(S.repaired)txt='Repaired. The rebuilt bumper keeps the ball seated.';}
+  if(S.cond==='slap'){
+    if(act&&!S.tenodesis){peelT=cl01((abd-55)/50)*cl01((rot-20)/55);Tt.copy(UP).multiplyScalar(.03*R*peelT);
+      if(peelT>.3){lvl='crit';txt='Peel-back. The twisting biceps is lifting the loose top of the labrum off the bone.';}
+      else{lvl='warn';txt='Top of the labrum and the biceps anchor are detached.';}}
+    else if(S.tenodesis)txt='Biceps moved to the humerus. Nothing pulls on the top of the labrum.';
+    else if(S.repaired)txt='Repaired. Labrum and biceps anchor re-seated on top of the socket.';}
+  if(S.cond==='cuff'){
+    if(act){const lim=80,want=Math.hypot(abd,flex);if(want>lim){abd*=lim/want;flex*=lim/want;}
+      Tt.set(0,.3*R*cl01(Math.min(want,lim)/60),0);imp=cl01((Tt.y/R-.12)/.15);
+      if(want>lim){lvl='crit';txt='Stuck at shoulder height. The ball has ridden up into the acromion.';}
+      else if(want>15){lvl='warn';txt='The ball is riding upward. Supraspinatus is not holding it down.';}
+      else{lvl='warn';txt='Supraspinatus torn off the greater tuberosity.';}}
+    else if(S.repaired)txt='Repaired. The cuff holds the ball down again while you lift.';}
+  if(S.cond==='oa'){
+    if(S.worn&&!S.replaced){hotT=.45+.4*cl01(Math.abs(rot)/80+Math.hypot(abd,flex)/200);lvl='crit';txt='Bone rubbing on bone where the cartilage has worn away.';}
+    else if(S.replaced)txt='Metal ball gliding on a plastic socket.';}
+  if(S.cond==='tight'){
+    if(S.tight){const lim=20;if(rot>lim){const over=rot-lim;rot=lim+over*.15;Tt.set(0,0,-.24*R*cl01(over/50));hotT=.4+.5*cl01(over/50);lvl='crit';txt='The tight front capsule is forcing the ball backward against the socket.';}
+      else{lvl='warn';txt='Outward rotation is limited by the tight repair. Try turning the arm out.';}}
+    else txt='Looser repair. The ball stays centred and the arm turns freely.';}
+  peel+=(peelT-peel)*(reduce?1:.12);
+  return {abd,flex,rot,lvl,txt,imp};}
+
+/* ---------- soft tissue: blended between the bones it joins, kept at its own depth around the ball ---------- */
+const qA=new THREE.Quaternion(),qP=new THREE.Quaternion(),qPi=new THREE.Quaternion(),qR=new THREE.Quaternion();
+const AY=V(0,1,0),AZ=V(0,0,1);
+const XF={thorax:new THREE.Matrix4(),scap:new THREE.Matrix4(),arm:new THREE.Matrix4()};
+const TORNSEG={bankart:[90,185],slap:[-55,55]};
+const vb=V(0,0,0),vm=V(0,0,0),vv=V(0,0,0),Hc=V(0,0,0),tmp=V(0,0,0);
+function inArc(th,a0,a1){let d=th*180/Math.PI;return d>=a0&&d<=a1?Math.min(d-a0,a1-d):-1;}
+function deformAll(){
+  scene.updateMatrixWorld(true);XF.scap.copy(scap.matrixWorld);XF.arm.copy(arm.matrixWorld);Hc.set(0,0,0).applyMatrix4(XF.arm);
+  const P=PAL[pal],cMus=lin(P.mus),cLab=lin(P.lab),cCap=lin(P.cap),cLig=lin(P.ten),cRed=lin(TORN);
+  const tornLab=S.torn&&!S.repaired&&TORNSEG[S.cond]&&!(S.cond==='slap'&&S.tenodesis)?TORNSEG[S.cond]:null;
+  const labOff=(th,f)=>{const rd=UP.clone().multiplyScalar(Math.cos(th)).addScaledVector(FR,Math.sin(th));
+    return S.cond==='bankart'?rd.multiplyScalar(.035*f).addScaledVector(GN,.03*f):rd.multiplyScalar((.02+.07*peel)*f).addScaledVector(GN,(.02+.06*peel)*f).addScaledVector(UP,.02*peel*f);};
+  const supraTorn=S.cond==='cuff'&&S.torn&&!S.repaired;
+  const tenoW=HW.teno?HW.teno.clone().applyMatrix4(XF.arm):null;
+  deformables.forEach(m=>{const u=m.userData,pa=m.geometry.attributes.position,ca=m.geometry.attributes.color,arr=pa.array,col=ca.array,R0=u.rest,W=u.w,n=pa.count;
+    const B=XF[u.base],Mv=XF[u.move];const keep=u.grp!=='labrum';
+    const base=u.grp==='labrum'?cLab:u.grp==='capsule'?(/ligament/.test(u.key)?cLig:cCap):(pal==='teach'&&TEACH_MUS[u.key]?lin(TEACH_MUS[u.key]):cMus);const cTen=lin(P.ten),TF=u.tf;
+    let oc=null;if(supraTorn&&u.key==='Supraspinatus muscle'){oc=V(0,0,0);let k=0;for(let i=0;i<n;i++)if(W[i]<.1){oc.add(V(R0[i*3],R0[i*3+1],R0[i*3+2]));k++;}oc.multiplyScalar(1/Math.max(1,k));}
+    for(let i=0;i<n;i++){const j=i*3;vv.set(R0[j],R0[j+1],R0[j+2]);let w=W[i],red=0;
+      if(u.grp==='labrum'&&tornLab){const e=inArc(u.theta[i],tornLab[0],tornLab[1]);if(e>=0){const f=sm(e/12);vv.add(labOff(u.theta[i],f));red=f;}}
+      if(u.key==='Long head of biceps brachii'&&S.cond==='slap'&&S.torn&&!S.repaired&&!S.tenodesis&&w<.25){const f=1-w/.25;vv.add(labOff(0,f));red=f*.8;}
+      if(oc&&w>.4){const f=sm((w-.4)/.5);vv.lerp(oc,.32*f);w=0;red=f;}else if(oc)w=0;
+      vb.copy(vv).applyMatrix4(B);
+      if(Mv!==B&&w>0){vm.copy(vv).applyMatrix4(Mv);vb.lerp(vm,w);}
+      if(S.tenodesis&&u.key==='Long head of biceps brachii'&&tenoW&&W[i]<.6){vb.lerp(tenoW,sm((.6-W[i])/.45));}
+      if(keep){const d0=u.d0[i];if(d0<R*2.4){tmp.copy(vb).sub(Hc);const dd=tmp.length();if(dd<d0&&dd>1e-5){const k=sm((R*2.4-d0)/(R*.7));vb.copy(Hc).addScaledVector(tmp,1+(d0/dd-1)*k);}}}
+      arr[j]=vb.x;arr[j+1]=vb.y;arr[j+2]=vb.z;
+      const tt=TF?TF[i]:0;const br=base.r+(cTen.r-base.r)*tt,bg=base.g+(cTen.g-base.g)*tt,bb=base.b+(cTen.b-base.b)*tt;
+      col[j]=br+(cRed.r-br)*red;col[j+1]=bg+(cRed.g-bg)*red;col[j+2]=bb+(cRed.b-bb)*red;}
+    pa.needsUpdate=true;ca.needsUpdate=true;m.geometry.computeVertexNormals();m.geometry.computeBoundingSphere();});
+}
+
+let lastKey='';
+function update(){
+  const e=evaluate();
+  T.lerp(Tt,reduce?1:.12);hot+=(hotT-hot)*(reduce?1:.12);
+  /* one total lift, aimed between straight out to the side and straight forward: the arm never swings into the chest */
+  const el=Math.min(170,Math.hypot(e.abd,e.flex)),phi=(e.abd+e.flex)>0?Math.atan2(e.flex,e.abd):0;
+  const sc=el*0.28*Math.cos(phi);pivot.rotation.z=-rad(sc);
+  qP.setFromAxisAngle(AY,phi);qA.setFromAxisAngle(AZ,-rad(el-sc));qPi.setFromAxisAngle(AY,-phi);qR.setFromAxisAngle(AY,-rad(e.rot));
+  arm.quaternion.copy(qP).multiply(qA).multiply(qPi).multiply(qR);
+  arm.position.copy(T);
+  if(HW.imp)HW.imp.material.opacity=.55*e.imp;
+  if(hot>.03){const g=GN.clone().negate().addScaledVector(T,2.2/R);if(S.cond==='oa'){g.addScaledVector(FR,Math.sin(rad(e.rot))*.3);g.addScaledVector(UP,el/400);}g.normalize();
+    const p=g.multiplyScalar(R*1.055);hotMesh.position.copy(p);hotMesh.quaternion.setFromUnitVectors(AZ,p.clone().negate().normalize());
+    mHot.opacity=Math.min(.9,hot);hotMesh.visible=L().cartilage;}else hotMesh.visible=false;
+  const key=arm.position.toArray().map(v=>v.toFixed(4)).join()+arm.quaternion.toArray().map(v=>v.toFixed(4)).join()+pivot.rotation.z.toFixed(4)+peel.toFixed(3)+JSON.stringify(S)+pal;
+  if(ready&&key!==lastKey){lastKey=key;deformAll();}
+  const st=e.lvl+e.txt;if(st!==lastStatus){lastStatus=st;$('status').dataset.lvl=e.lvl;$('status-t').textContent=e.txt;}}
+
+/* ---------- cases and surgical steps ---------- */
+const HIDE_ARM={humerus:false,cuff:false,deltoid:false,capsule:false,outer:false,biceps:false};
+const QUIET={deltoid:false,outer:false};
+const CASES={
+ healthy:{name:'Healthy shoulder',steps:[
+  {t:'How to use this',d:'Drag to turn the model, pinch or scroll to zoom, and tap any part to name it. Use the sliders below to move the arm, and the layer buttons to peel structures away.',view:'overview',pose:{abd:0,flex:0,rot:0}},
+  {t:'The socket',d:'With the arm bone hidden you are looking straight into the glenoid. The smooth lining is cartilage. The ring around the rim is the labrum, deepening the shallow socket like a gasket. The biceps tendon starts from its top.',view:'side',ly:HIDE_ARM},
+  {t:'The rotator cuff',d:'Four cuff muscles start on the shoulder blade and wrap around the ball to the tuberosities. Their constant pull keeps the ball centred in the socket while you move.',view:'back',ly:QUIET},
+  {t:'Biceps and deltoid',d:'The long head of biceps starts on top of the labrum, arches over the ball and runs down a groove at the front of the arm. The deltoid is the big outer muscle that lifts the arm.',view:'front',ly:{outer:false}},
+  {t:'Lifting the arm',d:'As the arm lifts sideways, the shoulder blade rotates over the ribs too: about two degrees at the ball and socket for every one at the shoulder blade. The cuff keeps the ball centred the whole way.',view:'front',ly:{outer:false},pose:{abd:120,flex:0,rot:0}}]},
+ bankart:{name:'Labrum tear (Bankart)',base:{torn:true},ly:QUIET,steps:[
+  {t:'The injury',d:'The front-bottom part of the labrum, from about 3 to 6 o\'clock on a right shoulder, has been torn off the socket rim. This usually happens when the arm is forced up and back during a dislocation. The bumper on that side is gone.',view:'side',ly:HIDE_ARM,pose:{abd:0,flex:0,rot:0}},
+  {t:'What it does',d:'Lift the arm sideways and turn it out. With no bumper at the front, the ball slides forward over the rim. This is why the shoulder keeps slipping out in that position.',view:'front',ly:{capsule:false},pose:{abd:90,flex:0,rot:80}},
+  {t:'Keyhole access',d:'Under anaesthetic, the surgeon makes a small portal at the back for the camera and one or two at the front for instruments. Fluid is pumped in to open up the joint.',view:'overview',st:{scope:true},pose:{abd:0,flex:0,rot:0}},
+  {t:'Prepare the rim',d:'The torn labrum is freed up and the bone along the front rim is roughened with a rasp or burr. Fresh, bleeding bone gives the labrum something to heal onto.',view:'side',ly:HIDE_ARM,st:{prep:true}},
+  {t:'Place anchors',d:'Small suture anchors are drilled into the rim, here at about 5:30, 4:30 and 3:30. Each one carries strong sutures. Anchors are usually made of absorbable material or plastic.',view:'side',ly:HIDE_ARM,st:{anchors:true}},
+  {t:'Pass sutures',d:'The sutures are passed through the labrum and a pinch of the capsule. That way the slack capsule is shifted up and tightened at the same time.',view:'side',ly:HIDE_ARM,st:{sutures:true}},
+  {t:'Tie it down',d:'Tying the knots pulls the labrum back onto the rim, rebuilding the bumper and restoring tension at the front. How tight to make it is the surgeon\'s judgment, especially if the cartilage is already worn.',view:'side',ly:HIDE_ARM,st:{repaired:true}},
+  {t:'Test and rehab',d:'Same movement as before: the ball now stays seated. Rehab is usually a sling for 4 to 6 weeks, no forceful turning outward early on, and a return to contact sport at around 4 to 6 months.',view:'front',ly:{capsule:false},st:{scope:false},pose:{abd:90,flex:0,rot:80}}]},
+ slap:{name:'SLAP tear',base:{torn:true},ly:QUIET,steps:[
+  {t:'The injury',d:'The top of the labrum, from about 10 to 2 o\'clock, has come off the socket along with the anchor of the biceps tendon. SLAP means superior labrum, anterior to posterior. It is common in throwers, after falls on an outstretched arm and with heavy lifting.',view:'side',ly:HIDE_ARM,pose:{abd:0,flex:0,rot:0}},
+  {t:'Peel-back',d:'In the throwing position (arm up and turned out) the biceps twists and drags the loose top of the labrum off the bone. This peel-back causes deep pain, catching and clicking.',view:'peel',ly:{capsule:false},pose:{abd:110,flex:0,rot:85}},
+  {t:'Choosing the fix',d:'There are two main options: re-attach the labrum, or move the biceps tendon off it (tenodesis). Repair tends to suit younger athletes. Tenodesis is often preferred over about 35 to 40, or after a failed repair.',view:'peel',ly:{capsule:false},pose:{abd:0,flex:0,rot:0}},
+  {t:'Anchors on top',d:'Through keyhole portals, the top of the socket is roughened and two anchors are placed, one on each side of the biceps root.',view:'side',ly:HIDE_ARM,st:{scope:true,prep:true,anchors:true}},
+  {t:'Re-seat the labrum',d:'Sutures passed through the labrum are tied down, re-seating the labrum and the biceps anchor on top of the socket.',view:'side',ly:HIDE_ARM,st:{sutures:true,repaired:true}},
+  {t:'The alternative: tenodesis',d:'Instead of a repair, the biceps tendon can be cut from the labrum and fixed lower down on the humerus with an anchor or screw. The loose labrum is trimmed. With nothing pulling on the top of the labrum, peel-back stops.',view:'front',st:{tenodesis:true,scope:false},pose:{abd:110,flex:0,rot:85}},
+  {t:'Rehab',d:'Usually a sling for about 4 to 6 weeks, then gradual movement and strengthening. Overhead athletes often need 6 to 12 months to return fully.',view:'overview',ly:{},pose:{abd:0,flex:0,rot:0}}]},
+ cuff:{name:'Rotator cuff tear',base:{torn:true},ly:QUIET,steps:[
+  {t:'The injury',d:'The supraspinatus tendon has torn off its attachment on the greater tuberosity and pulled back toward the shoulder blade. A spur under the acromion can contribute by rubbing on it.',view:'top',pose:{abd:0,flex:0,rot:0}},
+  {t:'What it does',d:'Try lifting the arm. Without supraspinatus holding the ball down, the deltoid pulls it upward into the acromion. Lifting stops at around shoulder height and the space under the acromion gets pinched.',view:'front',ly:{deltoid:true,capsule:false},pose:{abd:90,flex:0,rot:0}},
+  {t:'Keyhole access',d:'Portals are made around the shoulder. The torn edge is freed from scar tissue and pulled across to check it reaches its footprint without too much tension.',view:'top',st:{scope:true},pose:{abd:0,flex:0,rot:0}},
+  {t:'Prepare the footprint',d:'The footprint on the greater tuberosity is cleaned down to bleeding bone so the tendon can heal onto it.',view:'top',ly:{capsule:false},st:{prep:true}},
+  {t:'Two rows of anchors',d:'A medial row of anchors goes in near the edge of the cartilage and a lateral row further out on the tuberosity. This is a double-row repair.',view:'top',ly:{cuff:false,capsule:false},st:{anchors:true}},
+  {t:'Bridge the tendon down',d:'Sutures are passed through the tendon and crossed over to the lateral row, pressing the tendon flat onto a wide patch of bone.',view:'top',ly:{capsule:false},st:{sutures:true,repaired:true}},
+  {t:'Smooth the roof',d:'If a spur is pressing on the tendon, the underside of the acromion can be shaved smooth (subacromial decompression). Surgeons do this less routinely than they used to.',view:'front',st:{decompress:true}},
+  {t:'Test and rehab',d:'The ball stays centred again when lifting. Rehab is slow because tendon heals slowly: a sling for around 6 weeks, strengthening from about 3 months, and full recovery at 6 to 12 months.',view:'front',ly:{capsule:false},st:{scope:false},pose:{abd:110,flex:0,rot:0}}]},
+ oa:{name:'Cartilage wear',base:{worn:true},ly:QUIET,steps:[
+  {t:'The damage',d:'The cartilage on the ball and the socket has worn thin across most of the surface, shown here with holes. Bone spurs form around the edge of the ball. Where cartilage is gone, bone rubs on bone.',view:'side',ly:HIDE_ARM,pose:{abd:0,flex:0,rot:0}},
+  {t:'Moving a worn joint',d:'Turn the arm in and out with the slider. The red patch on the socket shows where the worn surfaces press hardest. Pain, grinding and stiffness come from here.',view:'front',ly:{capsule:false},pose:{abd:30,flex:0,rot:45}},
+  {t:'Non-surgical care',d:'First line is physio to strengthen the rotator cuff and keep the ball centred, plus activity changes, pain relief and injections. None of this regrows cartilage, but it often buys years.',view:'front',ly:{capsule:false},pose:{abd:0,flex:0,rot:0}},
+  {t:'Keyhole clean-out',d:'Debridement smooths frayed cartilage, removes loose fragments and trims bone spurs. In younger patients it can delay a replacement.',view:'overview',st:{scope:true}},
+  {t:'Shoulder replacement',d:'The worn ball is cut off and replaced with a polished metal ball on a stem (or a short stemless anchor). The socket is resurfaced with a plastic component. The subscapularis tendon at the front is detached to get in and repaired at the end.',view:'front',ly:{capsule:false},st:{scope:false,replaced:true}},
+  {t:'After the replacement',d:'Metal on plastic glides smoothly, so the grinding pain goes. The cuff still has to keep the ball centred. If it weakens, the plastic socket can loosen over the years. If the cuff is badly torn, a reverse replacement is used instead, with the ball on the socket side so the deltoid can lift the arm.',view:'front',ly:{capsule:false},pose:{abd:70,flex:0,rot:30}}]},
+ tight:{name:'Over-tight repair',base:{tight:true},ly:QUIET,steps:[
+  {t:'Too much tension',d:'A stabilisation repair tightens the front capsule and labrum. If it is made too tight, the front of the joint behaves like a short rope.',view:'front',pose:{abd:0,flex:0,rot:0}},
+  {t:'Turn the arm out',d:'Rotation outward stops early. Forced further, the tight front capsule shoves the ball backward against the back of the socket. The red patch shows the overloaded cartilage.',view:'top',ly:{capsule:false},pose:{abd:0,flex:0,rot:70}},
+  {t:'The long-term cost',d:'Over years, that concentrated pressure wears the cartilage down. This is called capsulorrhaphy arthropathy. It is why surgeons leave the repair looser when the cartilage is already damaged.',view:'top',ly:{capsule:false}},
+  {t:'A looser repair',d:'With a deliberately looser repair, the ball stays centred and turns freely. The trade-off is less passive restraint, so the rotator cuff becomes the main thing keeping the ball centred. That is why cuff strengthening matters more.',view:'top',ly:{capsule:false},st:{tight:false},pose:{abd:0,flex:0,rot:70}}]}};
+
+
+let curCase='healthy',curStep=0;
+function stateFor(c,k){const cs=CASES[c];return Object.assign({},DEF,{cond:c},cs.base||{},...cs.steps.slice(0,k+1).map(s=>s.st||{}));}
+function goStep(k){const cs=CASES[curCase];curStep=Math.max(0,Math.min(cs.steps.length-1,k));const s=cs.steps[curStep];
+  S=stateFor(curCase,curStep);stepL=Object.assign({},cs.ly||{},s.ly||{});
+  if(s.pose)animPose(s.pose);if(s.view)view(s.view);applyState();applyVis();renderStep();}
+function renderStep(){const cs=CASES[curCase],s=cs.steps[curStep];
+  $('case-name').textContent=cs.name;$('step-n').textContent=(curStep+1)+' / '+cs.steps.length;
+  $('step-t').textContent=s.t;$('step-d').textContent=s.d;
+  $('prog').innerHTML=cs.steps.map((_,i)=>'<i class="'+(i<=curStep?'on':'')+'"></i>').join('');
+  $('prev').disabled=curStep===0;$('next').textContent=curStep===cs.steps.length-1?'Start again':'Next step';
+  document.querySelectorAll('#cases .chip').forEach(b=>b.setAttribute('aria-pressed',b.dataset.c===curCase?'true':'false'));}
+$('cases').innerHTML=Object.keys(CASES).map(k=>'<button class="chip" data-c="'+k+'" aria-pressed="false">'+CASES[k].name+'</button>').join('');
+$('cases').addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;curCase=b.dataset.c;$('info').hidden=true;goStep(0);});
+$('prev').onclick=()=>goStep(curStep-1);
+$('next').onclick=()=>{const n=CASES[curCase].steps.length;goStep(curStep===n-1?0:curStep+1);};
+function renderLayers(){const l=L();$('layers').innerHTML=LNAMES.map(([k,n])=>'<button class="chip layer" data-l="'+k+'" aria-pressed="'+(l[k]?'true':'false')+'">'+n+'</button>').join('');}
+$('layers').addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;const k=b.dataset.l;const now=L()[k];userL[k]=!now;delete stepL[k];applyVis();});
+
+/* ---------- arm sliders ---------- */
+const sl={abd:$('abd'),flex:$('flex'),rot:$('rot')};
+function fmt(k,v){v=Math.round(v);if(k==='rot')return v===0?'0°':(Math.abs(v)+'° '+(v>0?'out':'in'));return v+'°';}
+function syncSliders(){Object.keys(sl).forEach(k=>{sl[k].value=Math.round(POSE[k]);$(k+'-o').textContent=fmt(k,POSE[k]);});}
+let poseTw=null;
+function animPose(p){if(reduce){Object.assign(POSE,p);syncSliders();return;}poseTw={from:Object.assign({},POSE),to:Object.assign({},POSE,p),t0:performance.now(),d:1100};}
+Object.keys(sl).forEach(k=>sl[k].addEventListener('input',()=>{poseTw=null;POSE[k]=+sl[k].value;$(k+'-o').textContent=fmt(k,POSE[k]);}));
+$('reset-pose').onclick=()=>animPose({abd:0,flex:0,rot:0});
+
+/* ---------- camera views (right shoulder: the outside of the arm is -x, the front is +z) ---------- */
+const GC=V(.17,.04,-.09);
+const VIEWS={overview:{p:V(-4.6,1.4,7.6),t:V(0.45,-1.15,0.15)},front:{p:V(-1.2,-0.1,5.2),t:V(0.1,-0.6,0.05)},side:{p:GN.clone().multiplyScalar(2.4).add(V(0,.12,0)),t:GC},
+  back:{p:V(-1.0,0.5,-5.2),t:V(0.25,-0.5,-0.1)},top:{p:V(-0.8,4.6,1.1),t:V(0.1,0.0,0)},peel:{p:V(-2.3,2.0,2.5),t:V(0.05,0.0,0)}};
+let camTw=null;
+function view(n,now){const v=VIEWS[n];if(!v)return;if(reduce||now){camera.position.copy(v.p);controls.target.copy(v.t);return;}
+  camTw={fp:camera.position.clone(),ft:controls.target.clone(),tp:v.p,tt:v.t,t0:performance.now(),d:900};}
+document.querySelectorAll('.views button').forEach(b=>b.onclick=()=>{const n=b.dataset.view;
+  if(n==='side'){stepL=Object.assign({},stepL,HIDE_ARM);}else{Object.keys(HIDE_ARM).forEach(k=>{if(stepL[k]===false)delete stepL[k];});}applyVis();view(n);});
+const ease=x=>x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+view('overview',true);
+
+/* ---------- picking ---------- */
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();let down=null;
+renderer.domElement.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];});
+renderer.domElement.addEventListener('pointerup',e=>{if(!down)return;const dx=e.clientX-down[0],dy=e.clientY-down[1];down=null;if(dx*dx+dy*dy>40)return;
+  const r=renderer.domElement.getBoundingClientRect();ndc.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
+  ray.setFromCamera(ndc,camera);const hits=ray.intersectObjects(picks.filter(m=>m.visible),false);
+  if(!hits.length){$('info').hidden=true;return;}
+  const h=hits.find(x=>x.object.material!==mCap)||hits[0];
+  $('info-n').textContent=h.object.userData.name;$('info-d').textContent=h.object.userData.info||'';$('info').hidden=false;flash(h.object);});
+let flashed=null;
+function flash(m){if(flashed){flashed.m.material=flashed.orig;clearTimeout(flashed.t);}const orig=m.material;const c=orig.clone();if(c.emissive)c.emissive.copy(lin('#1d6f63'));
+  m.material=c;flashed={m,orig,t:setTimeout(()=>{if(m.material===c)m.material=orig;flashed=null;},1600)};}
+$('info-x').onclick=()=>{$('info').hidden=true;};
+
+/* ---------- loop ---------- */
+function resize(){const w=stageEl.clientWidth,h=stageEl.clientHeight;if(!w||!h)return;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
+new ResizeObserver(resize).observe(stageEl);resize();
+function loop(now){
+  if(poseTw){const k=ease(Math.min(1,(now-poseTw.t0)/poseTw.d));['abd','flex','rot'].forEach(q=>POSE[q]=poseTw.from[q]+(poseTw.to[q]-poseTw.from[q])*k);syncSliders();if(k>=1)poseTw=null;}
+  if(camTw){const k=ease(Math.min(1,(now-camTw.t0)/camTw.d));camera.position.lerpVectors(camTw.fp,camTw.tp,k);controls.target.lerpVectors(camTw.ft,camTw.tt,k);if(k>=1)camTw=null;}
+  update();controls.update();renderer.render(scene,camera);requestAnimationFrame(loop);}
+renderStep();syncSliders();requestAnimationFrame(loop);
+window.__shoulder={view,POSE,goStep:(c,k)=>{curCase=c;goStep(k);}};
+})();
+</script>
+
+</body></html>
