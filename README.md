@@ -15,6 +15,10 @@ with each finding lit up on the 3D body, a glossary and questions for the doctor
   It needs the `ANTHROPIC_API_KEY` environment variable in the Vercel project settings.
 - Reports are not stored or logged. Each visitor gets a few explanations per hour; the real cost cap
   is the monthly spend limit set in the Anthropic Console.
+- **Narrated walkthrough** (`src/film.js`): an intro, one scene per finding and a closing scene with
+  the questions. Each finding scene colours the part by the kind of change, pins a pulsing marker where
+  the part meets its neighbour (e.g. where a tendon attaches to bone), flies the camera there and reads
+  the explanation aloud with subtitles. The voice is the browser's built-in speech (free).
 - Claude may only name structures from `api/_vocab.js` (the parts the 3D model has), so findings
   always map onto the model. `tools/build_vocab.mjs` rebuilds that list and `public/models/vocab.json`
   whenever the model files change.

@@ -71,6 +71,41 @@ input[type=search]{font:15px var(--f-body);padding:10px 12px;border-radius:9px;b
 .walk:hover{border-color:var(--accent)}
 .walk b{display:block;font-family:var(--f-display);font-weight:600;font-size:17px;color:var(--accent)}
 .walk span{font-size:13.5px;color:var(--muted)}
+/* narrated walkthrough */
+.viewer.filming .views,.viewer.filming .info{display:none}
+.film{position:absolute;left:10px;right:10px;bottom:10px;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.film[hidden]{display:none}
+.film-cap,.film-bar{pointer-events:auto;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:12px}
+.film-cap{padding:10px 14px 12px;max-width:640px;max-height:38vh;overflow-y:auto}
+.film-cap b{display:block;font-family:var(--f-display);font-weight:600;font-size:17px;line-height:1.25;margin-bottom:3px}
+.film-cap p{margin:0;font-size:15px;line-height:1.45}
+.film-cap ol{margin:6px 0 0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:3px}
+.film-cap ol[hidden]{display:none}
+.film-bar{display:flex;align-items:center;gap:4px;padding:6px;align-self:flex-start;max-width:100%}
+.film-bar button{all:unset;box-sizing:border-box;width:40px;height:40px;display:grid;place-items:center;border-radius:9px;color:var(--ink);cursor:pointer;flex:none}
+.film-bar button:hover{background:var(--bg)}
+.film-bar button:disabled{opacity:.35;cursor:default}
+.film-bar button:focus-visible{outline:2px solid var(--accent)}
+.film-bar svg{width:22px;height:22px;fill:currentColor}
+.film-bar .play{background:var(--accent);color:var(--accent-ink);width:46px;height:46px;border-radius:50%}
+.film-bar .play:hover{background:var(--accent)}
+.film-bar [hidden]{display:none}
+.film-dots{display:flex;gap:7px;padding:5px 8px;overflow-x:auto;scrollbar-width:none;min-width:0}
+.film-dots .dot{width:12px;height:12px;border-radius:50%;background:var(--dot,var(--muted));opacity:.45;padding:0;flex:none}
+.film-dots .dot[aria-current="step"]{opacity:1;box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--dot,var(--muted))}
+.film-step{font:12px var(--f-mono);color:var(--muted);padding:0 4px;flex:none}
+.pin{position:absolute;left:0;top:0;pointer-events:none;--pin:#E53935;will-change:transform}
+.pin[hidden]{display:none}
+.pin i{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:var(--pin);box-shadow:0 0 0 3px #fff,0 2px 8px rgba(0,0,0,.35)}
+.pin i::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:3px solid var(--pin);animation:pulse 1.6s ease-out infinite}
+@keyframes pulse{from{transform:scale(1);opacity:.9}to{transform:scale(3.2);opacity:0}}
+.pin span{position:absolute;left:18px;top:-15px;white-space:nowrap;background:var(--pin);color:#fff;font:600 13px/1 var(--f-body);padding:8px 10px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.pin span[hidden]{display:none}
+@media (prefers-reduced-motion: reduce){.pin i::after{animation:none;opacity:.6;transform:scale(1.8)}}
+@media (max-width:520px){.film-cap p{font-size:14px}.film-cap{max-height:30vh}.film-step{display:none}}
+.btn.play-film{display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;padding:12px 14px}
+.btn.play-film svg{width:18px;height:18px;fill:currentColor}
+
 /* report explainer */
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn:disabled{opacity:.5;cursor:default}
@@ -109,3 +144,17 @@ textarea{font:14px/1.45 var(--f-body);padding:10px 12px;border-radius:9px;border
 .rep-actions{display:flex;flex-wrap:wrap;gap:8px}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media (max-width:520px){header p{display:none}}
+.pin.flip span{left:auto;right:18px}
+/* phones: while the walkthrough plays, give the 3D view most of the screen */
+@media (max-width:759px) and (orientation:portrait){
+  body.filming .grid{grid-template-rows:minmax(0,76fr) minmax(0,24fr)}
+  .film{left:6px;right:6px;bottom:6px;gap:6px}
+  .film-cap{padding:8px 11px 9px;max-height:24vh}
+  .film-cap b{font-size:15px}
+  .film-cap p{font-size:13.5px;line-height:1.4}
+  .film-bar{padding:3px;gap:2px}
+  .film-bar button{width:36px;height:36px}
+  .film-bar .play{width:42px;height:42px}
+  .film-bar svg{width:20px;height:20px}
+  .pin span{font-size:12px;padding:6px 8px;top:-12px}
+}

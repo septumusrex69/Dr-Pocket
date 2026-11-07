@@ -20,9 +20,9 @@ os.makedirs(OUT, exist_ok=True)
 
 # Triangle budget per system for the whole body.
 BUDGET = {
-    'muscles': 320_000, 'skeleton': 220_000, 'veins': 130_000, 'arteries': 130_000,
+    'muscles': 520_000, 'skeleton': 320_000, 'veins': 130_000, 'arteries': 130_000,
     'nerves': 110_000, 'gut': 100_000, 'skin': 70_000, 'senses': 40_000, 'lungs': 60_000,
-    'heart': 60_000, 'joints': 40_000, 'cartilage': 30_000,
+    'heart': 80_000, 'joints': 50_000, 'cartilage': 30_000,
 }
 MIN_FACES = 60
 

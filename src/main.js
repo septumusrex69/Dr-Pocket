@@ -3,6 +3,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { N8AOPass } from 'n8ao';
 import { initReport } from './report.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,9 +19,19 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---------- colours for each body system (teaching colours, as in Shoulder Lab) ---------- */
 const COLOR = {
-  skin: '#E2B59A', skeleton: '#E6DCC4', cartilage: '#4FA3E0', joints: '#EEE6D6', muscles: '#C9604F',
-  heart: '#B8323C', arteries: '#D8433F', veins: '#3F6FD3', nerves: '#F0C23B', senses: '#9B7BD4',
-  lungs: '#E99AA7', gut: '#D69B57', urinary: '#C46F52', genital: '#D58BB0', glands: '#5DB585',
+  skin: '#E0AE92', skeleton: '#EDE2C8', cartilage: '#6FB4E6', joints: '#F1E9DA', muscles: '#B9473D',
+  heart: '#A82A35', arteries: '#D23A36', veins: '#3C66C9', nerves: '#F2C33A', senses: '#9B7BD4',
+  lungs: '#E59AA6', gut: '#D79A5C', urinary: '#B9644A', genital: '#D58BB0', glands: '#5DB585',
+};
+// How each kind of tissue catches the light: soft sheen on muscle, satin bone, wet gloss on organs.
+const LOOK = {
+  muscles: { roughness: 0.5, sheen: 0.7, sheenRoughness: 0.45, sheenColor: '#FFB3A6', clearcoat: 0.12, clearcoatRoughness: 0.5 },
+  skeleton: { roughness: 0.62, sheen: 0.25, sheenRoughness: 0.6, sheenColor: '#FFF6E5' },
+  cartilage: { roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2 },
+  joints: { roughness: 0.35, clearcoat: 0.5, clearcoatRoughness: 0.25, sheen: 0.3, sheenColor: '#FFFFFF' },
+  skin: { roughness: 0.6, sheen: 0.35, sheenColor: '#FFD9C7', sheenRoughness: 0.6 },
+  nerves: { roughness: 0.4, sheen: 0.5, sheenColor: '#FFF2B0', clearcoat: 0.2 },
+  organ: { roughness: 0.38, clearcoat: 0.55, clearcoatRoughness: 0.22 },
 };
 const DEFAULT_ON = ['skeleton', 'muscles'];
 const DEFAULT_GHOST = ['skin'];
@@ -24,23 +39,48 @@ const HILITE = new THREE.Color('#F2B705');
 
 /* ---------- renderer and scene ---------- */
 const stageEl = $('stage');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+const phone = matchMedia('(pointer: coarse)').matches;
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, phone ? 1.5 : 2));
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.05;
 stageEl.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.add(new THREE.HemisphereLight(0xffffff, 0x4d5a57, 0.5));
-const key = new THREE.DirectionalLight(0xfff4e8, 1.4);
-key.position.set(-2, 4, 4);
+scene.environmentIntensity = 0.75;
+// Studio lighting: a warm key from the front-left, a cool rim from behind, soft fill from below.
+scene.add(new THREE.HemisphereLight(0xfff8f0, 0x3a4542, 0.55));
+const key = new THREE.DirectionalLight(0xfff1e2, 1.6);
+key.position.set(-2.5, 4, 4);
 scene.add(key);
-const rim = new THREE.DirectionalLight(0xe8f0ff, 0.5);
-rim.position.set(3, 2, -4);
+const rim = new THREE.DirectionalLight(0xdfeaff, 1.1);
+rim.position.set(2.5, 2.5, -4);
 scene.add(rim);
-function setBg() { scene.background = new THREE.Color(css('--stage')); redraw(); }
+const rim2 = new THREE.DirectionalLight(0xffe6dc, 0.6);
+rim2.position.set(-3, 1, -3);
+scene.add(rim2);
+
+// Soft radial backdrop in the page's stage colour.
+function setBg() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const g = c.getContext('2d');
+  const base = new THREE.Color(css('--stage'));
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const inner = base.clone().offsetHSL(0, 0, dark ? 0.06 : 0.07).getStyle();
+  const outer = base.clone().offsetHSL(0, 0, dark ? -0.03 : -0.09).getStyle();
+  const grad = g.createRadialGradient(256, 210, 20, 256, 256, 380);
+  grad.addColorStop(0, inner);
+  grad.addColorStop(1, outer);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 512, 512);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  scene.background = t;
+  redraw();
+}
 setBg();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setBg);
 
@@ -50,13 +90,37 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.12;
 controls.rotateSpeed = 0.5;
 controls.zoomSpeed = 0.7;
-controls.minDistance = 0.08;
+controls.minDistance = 0.03;
 controls.maxDistance = 8;
+controls.zoomToCursor = true; // pinch or scroll zooms toward the spot under your finger
+
+/* ---------- post-processing: soft contact shadows, selection outline, smooth edges ---------- */
+const composer = new EffectComposer(renderer);
+const aoPass = new N8AOPass(scene, camera, 1, 1);
+aoPass.configuration.aoRadius = 0.035; // metres: shadows where muscles, bones and organs meet
+aoPass.configuration.distanceFalloff = 1.0;
+aoPass.configuration.intensity = 2.4;
+aoPass.configuration.gammaCorrection = false;
+aoPass.configuration.halfRes = phone;
+aoPass.setQualityMode(phone ? 'Low' : 'Medium');
+composer.addPass(aoPass);
+const outlinePass = new OutlinePass(new THREE.Vector2(1, 1), scene, camera);
+outlinePass.edgeStrength = 4;
+outlinePass.edgeThickness = 1.2;
+outlinePass.edgeGlow = 0.4;
+outlinePass.visibleEdgeColor.set('#FFD54A');
+outlinePass.hiddenEdgeColor.set('#C79A1E');
+composer.addPass(outlinePass);
+composer.addPass(new OutputPass());
+const smaa = new SMAAPass(1, 1);
+composer.addPass(smaa);
 
 function resize() {
   const w = stageEl.clientWidth, h = stageEl.clientHeight;
   if (!w || !h) return;
   renderer.setSize(w, h, false);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(w, h);
   redraw();
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -133,6 +197,10 @@ function goRegion(r, instant) {
     const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3()).multiplyScalar(r.grow / 2);
     box = new THREE.Box3(c.clone().sub(s), c.clone().add(s));
   }
+  // a little breathing room around regions, more for the small ones
+  const pad = r.key === 'body' ? 1.0 : 1.45;
+  const c = box.getCenter(new THREE.Vector3()), hs = box.getSize(new THREE.Vector3()).multiplyScalar(pad / 2);
+  box = new THREE.Box3(c.clone().sub(hs), c.clone().add(hs));
   frameBox(box, { side: r.side, instant });
   activeRegion = r.key;
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.r === r.key));
@@ -143,11 +211,12 @@ function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Ma
 function makeMaterial(sysKey, id) {
   const c = new THREE.Color(COLOR[sysKey] || '#BBBBBB');
   // small shade changes between neighbouring parts so they read as separate pieces
-  const jitter = sysKey === 'skin' ? 0 : (hash(id) - 0.5) * (sysKey === 'muscles' ? 0.16 : 0.08);
-  c.offsetHSL(jitter * 0.3, 0, jitter);
-  return new THREE.MeshStandardMaterial({
-    color: c, roughness: sysKey === 'skeleton' ? 0.75 : 0.5, metalness: 0,
-    envMapIntensity: 0.6, side: THREE.DoubleSide,
+  const jitter = sysKey === 'skin' ? 0 : (hash(id) - 0.5) * (sysKey === 'muscles' ? 0.14 : 0.07);
+  c.offsetHSL(jitter * 0.25, jitter * 0.3, jitter);
+  const look = LOOK[sysKey] || LOOK.organ;
+  return new THREE.MeshPhysicalMaterial({
+    color: c, metalness: 0, envMapIntensity: 0.8, side: THREE.DoubleSide,
+    ...look, sheenColor: new THREE.Color(look.sheenColor || '#FFFFFF'),
   });
 }
 // While a search result or report finding is shown, every other part is see-through.
@@ -172,10 +241,15 @@ function paintSelection() {
   redraw();
   Object.values(partMesh).forEach((m) => {
     const isSel = !!selected && selected.ids.has(m.userData.id);
-    m.material.emissive.copy(isSel ? HILITE : new THREE.Color(0));
+    const tint = isSel && selected.tint && selected.tint.ids.has(m.userData.id) ? selected.tint.color : HILITE;
+    m.material.emissive.copy(isSel ? tint : new THREE.Color(0));
     // a whole organ gets a softer glow so its own colours still show
-    m.material.emissiveIntensity = isSel ? (selected.ids.size > 8 ? 0.18 : 0.45) : 0;
+    m.material.emissiveIntensity = isSel ? (selected.ids.size > 8 ? 0.12 : 0.28) : 0;
   });
+  // outline the selection (skipped for very large selections, where it would just be noise)
+  const sel = selected ? [...selected.ids].map((id) => partMesh[id]).filter(Boolean) : [];
+  outlinePass.selectedObjects = sel.length && sel.length <= 60 ? sel : [];
+  outlinePass.visibleEdgeColor.copy(selected?.tint ? selected.tint.color : new THREE.Color('#FFD54A'));
 }
 
 /* ---------- loading systems on demand ---------- */
@@ -351,7 +425,7 @@ function runSearch() {
 }
 $('q').addEventListener('input', runSearch);
 
-async function goTo(sel) {
+async function goTo(sel, { noFrame = false } = {}) {
   const need = new Set([...sel.ids].map((id) => INDEX.parts[id].sys));
   sel.ids.forEach((id) => hiddenParts.delete(id));
   await Promise.all([...need].map((k) => (systems[k].on ? null : setOn(systems[k], true))));
@@ -360,7 +434,7 @@ async function goTo(sel) {
   focusIds = new Set(sel.ids);
   Object.values(systems).forEach((s) => s.group && applyLook(s));
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
-  frameBox(selBox(1.3));
+  if (!noFrame) frameBox(selBox(1.3));
   renderSystems();
 }
 
@@ -412,18 +486,19 @@ async function start() {
 start();
 
 /* ---------- render loop ---------- */
+const frameListeners = new Set();
 controls.addEventListener('change', redraw);
 function tick() {
   if (fly) {
     dirty = true;
-    fly.k = Math.min(1, fly.k + 0.06);
+    fly.k = Math.min(1, fly.k + (fly.speed || 0.06));
     const t = fly.k * fly.k * (3 - 2 * fly.k);
     camera.position.lerpVectors(fly.p0, fly.p1, t);
     controls.target.lerpVectors(fly.t0, fly.t1, t);
     if (fly.k >= 1) fly = null;
   }
   controls.update();
-  if (dirty) { dirty = false; renderer.render(scene, camera); }
+  if (dirty) { dirty = false; composer.render(); frameListeners.forEach((f) => f()); }
   requestAnimationFrame(tick);
 }
 controls.addEventListener('start', () => { fly = null; });
@@ -432,13 +507,84 @@ tick();
 // handy for testing in the browser console
 window.__body = { systems, select, goTo, INDEX: () => INDEX, partMesh, camera, controls };
 
+/* ---------- walkthrough helpers ---------- */
+const _v = new THREE.Vector3();
+// World-space vertices of the given parts (sampled so huge parts stay quick).
+function vertsOf(ids, max = 6000) {
+  const out = [];
+  ids.forEach((id) => {
+    const m = partMesh[id];
+    if (!m) return;
+    const pos = m.geometry.attributes.position;
+    const step = Math.max(1, Math.floor((pos.count * ids.length) / max));
+    for (let i = 0; i < pos.count; i += step) out.push([pos.getX(i), pos.getY(i), pos.getZ(i), m, i]);
+  });
+  return out;
+}
+/* Where to pin a finding: the point of the focus part closest to the "near" part
+   (e.g. where a tendon meets its bone), or the middle of the focus part. */
+function markerFor(focusIds, nearIds) {
+  const fv = vertsOf(focusIds);
+  if (!fv.length) return null;
+  let best = null;
+  const nv = nearIds?.length ? vertsOf(nearIds, 3000) : [];
+  if (nv.length) {
+    let bd = Infinity;
+    for (const a of fv) for (const b of nv) {
+      const d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+      if (d < bd) { bd = d; best = a; }
+    }
+  } else {
+    const c = fv.reduce((acc, a) => acc.add(_v.set(a[0], a[1], a[2])), new THREE.Vector3()).multiplyScalar(1 / fv.length);
+    let bd = Infinity;
+    for (const a of fv) { const d = c.distanceToSquared(_v.set(a[0], a[1], a[2])); if (d < bd) { bd = d; best = a; } }
+  }
+  const point = new THREE.Vector3(best[0], best[1], best[2]);
+  const nrm = best[3].geometry.attributes.normal;
+  const normal = nrm ? new THREE.Vector3(nrm.getX(best[4]), nrm.getY(best[4]), nrm.getZ(best[4])) : new THREE.Vector3(0, 0, 1);
+  const size = partBox(focusIds).getSize(new THREE.Vector3()).length();
+  return { point, normal, size };
+}
+/* Fly so the point is in the middle, seen from outside the body. */
+function lookAtPoint(m, { closeness = 1 } = {}) {
+  const out = new THREE.Vector3(m.point.x, 0, m.point.z - 0.08); // away from the body's centre line
+  if (out.lengthSq() < 1e-4) out.set(0, 0, 1);
+  out.normalize();
+  const dir = out.multiplyScalar(0.75).add(m.normal.clone().normalize().multiplyScalar(0.25));
+  dir.y += 0.18;
+  dir.normalize();
+  const dist = THREE.MathUtils.clamp(m.size * 1.6, 0.22, 0.75) / closeness;
+  // aim a little below the spot so it sits in the upper part of the view, clear of the subtitles
+  const aim = m.point.clone().add(new THREE.Vector3(0, -dist * 0.16, 0));
+  const to = aim.clone().addScaledVector(dir, dist);
+  if (reduceMotion) { camera.position.copy(to); controls.target.copy(aim); fly = null; controls.update(); redraw(); return; }
+  fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: to, t1: aim, k: 0, speed: 0.025 };
+}
+// Screen position of a 3D point inside the viewer (null when behind the camera).
+function toScreen(p) {
+  _v.copy(p).project(camera);
+  if (_v.z > 1) return null;
+  const r = renderer.domElement.getBoundingClientRect();
+  return { x: (_v.x + 1) / 2 * r.width, y: (1 - _v.y) / 2 * r.height };
+}
+
 /* ---------- report explainer hooks ---------- */
 initReport({
+  markerFor, lookAtPoint, toScreen,
+  onFrame: (f) => { frameListeners.add(f); redraw(); return () => frameListeners.delete(f); },
+  // light up parts with a colour, fade everything else, and stay put (the walkthrough moves the camera)
+  focusParts: async (ids, title, sub, tint, tintIds) => {
+    const known = ids.filter((id) => INDEX?.parts[id]);
+    if (!known.length) return false;
+    await goTo({ ids: new Set(known), title, sub, tint: tint && { color: new THREE.Color(tint), ids: new Set(tintIds || known) } }, { noFrame: true });
+    return true;
+  },
   // light up these parts, fading everything else (same as picking a search result)
   showParts: (ids, title, sub) => {
     const known = ids.filter((id) => INDEX?.parts[id]);
     if (known.length) goTo({ ids: new Set(known), title, sub });
   },
   goRegion: (key) => { const r = REGIONS.find((x) => x.key === key); if (r && INDEX) goRegion(r); },
+  deselect: () => select(null),
   clear: () => reset(),
 });

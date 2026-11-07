@@ -1,7 +1,10 @@
 // "Explain my scan report": sends the report to /api/explain, shows the plain-language answer,
 // and lights up each finding on the 3D body.
 
+import { createFilm, VISUAL_COLOR } from './film.js';
+
 const $ = (id) => document.getElementById(id);
+let film = null;
 const MAX_PDF_BYTES = 2_500_000;
 const LABEL = { normal: 'Normal', minor: 'Minor', notable: 'Worth noting', important: 'Important' };
 const WALK = {
@@ -55,20 +58,41 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/* Part ids for a finding: each named structure, on the report's side. */
-function idsFor(f) {
+/* Part ids for structure names, on the report's side. */
+function idsForNames(names, side) {
   const ids = [];
-  (f.structures || []).forEach((name) => {
+  (names || []).forEach((name) => {
     const v = vocab?.[name];
     if (!v) return;
     if (v.any.length) ids.push(...v.any);
-    if (f.side === 'left' || f.side === 'both' || (f.side === 'none' && !v.any.length)) ids.push(...v.left);
-    if (f.side === 'right' || f.side === 'both' || (f.side === 'none' && !v.any.length)) ids.push(...v.right);
+    if (side === 'left' || side === 'both' || (side === 'none' && !v.any.length)) ids.push(...v.left);
+    if (side === 'right' || side === 'both' || (side === 'none' && !v.any.length)) ids.push(...v.right);
   });
   return [...new Set(ids)];
 }
+const idsFor = (f) => idsForNames([...(f.structures || []), f.focus].filter(Boolean), f.side);
+
+/* The walkthrough: intro, one scene per finding, closing scene with the questions. */
+function buildScenes(d) {
+  const scenes = [{ kind: 'intro', title: d.exam || 'Your report', text: d.intro_narration || d.summary, region: d.region }];
+  (d.findings || []).forEach((f) => {
+    scenes.push({
+      kind: 'finding', title: f.title, text: f.narration || f.plain, visual: f.visual || f.kind === 'normal' && 'normal' || 'other',
+      label: f.marker_label || '', sub: f.approximate ? 'Area around it' : 'From your report',
+      ids: idsFor(f), focusIds: f.focus ? idsForNames([f.focus], f.side) : [], nearIds: f.near ? idsForNames([f.near], f.side) : [],
+      region: d.region,
+    });
+  });
+  scenes.push({
+    kind: 'outro', title: 'Questions for your doctor',
+    text: d.outro_narration || 'That is everything in your report. Take these questions with you to your doctor.',
+    list: d.questions || [], region: d.region,
+  });
+  return scenes;
+}
 
 export function initReport(body) {
+  film = createFilm(body);
   fetch('/models/vocab.json').then((r) => r.json()).then((v) => { vocab = v; }).catch(() => {});
 
   $('rep-file').addEventListener('change', async (e) => {
@@ -124,8 +148,11 @@ function render(d, body) {
   const out = $('rep-out');
   const findings = d.findings || [];
   const walk = WALK[d.walkthrough];
+  const scenes = buildScenes(d);
   out.innerHTML = `
     ${d.exam ? `<p class="rep-exam">${esc(d.exam)}</p>` : ''}
+    <button class="btn primary play-film" id="rep-play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Play the walkthrough</button>
+    <p class="note">A spoken tour of your report on the 3D body. Turn your sound on. You can pause or skip between parts.</p>
     ${d.urgent ? '<p class="rep-urgent">Your report flags something that needs attention soon. Please contact your doctor.</p>' : ''}
     <p class="rep-sum">${esc(d.summary)}</p>
     ${findings.length ? `<p class="rep-h">What the report found</p>
@@ -133,6 +160,7 @@ function render(d, body) {
     <ul class="rep-findings">${findings.map((f, i) => `
       <li><button class="finding" data-i="${i}" aria-pressed="false">
         <b>${esc(f.title)}<em class="tag ${esc(f.kind)}">${LABEL[f.kind] || ''}</em></b>
+        ${f.marker_label ? `<small style="color:${VISUAL_COLOR[f.visual] || 'inherit'}">● ${esc(f.marker_label)}</small>` : ''}
         <span>${esc(f.plain)}</span>
         ${idsFor(f).length ? (f.approximate ? '<small>The exact part is too small for the 3D model, so the area around it is shown.</small>' : '') : '<small>Not shown on the model.</small>'}
       </button></li>`).join('')}</ul>` : ''}
@@ -149,14 +177,14 @@ function render(d, body) {
   $('rep-form').hidden = true;
 
   const buttons = [...out.querySelectorAll('.finding')];
+  // tapping a finding opens the walkthrough on that scene, paused
   buttons.forEach((b) => b.addEventListener('click', () => {
-    const f = findings[Number(b.dataset.i)];
-    const ids = idsFor(f);
     buttons.forEach((x) => x.setAttribute('aria-pressed', x === b));
-    if (ids.length) body.showParts(ids, f.title, f.approximate ? 'Area around it' : 'From your report');
-    else if (d.region) body.goRegion(d.region);
+    film.open({ scenes, region: d.region }, { start: Number(b.dataset.i) + 1, play: false });
   }));
+  $('rep-play').addEventListener('click', () => film.open({ scenes, region: d.region }, { start: 0, play: true }));
   $('rep-again').addEventListener('click', () => {
+    if (film.isOpen) film.close();
     out.hidden = true;
     out.innerHTML = '';
     $('rep-form').hidden = false;
@@ -166,9 +194,7 @@ function render(d, body) {
     body.clear();
   });
 
-  // Start on the scanned region, and show the first finding that has parts.
-  if (d.region) body.goRegion(d.region);
-  const first = buttons.find((b) => idsFor(findings[Number(b.dataset.i)]).length);
-  if (first) setTimeout(() => first.click(), 400);
+  // Open the walkthrough on its first scene, ready to play.
+  film.open({ scenes, region: d.region }, { start: 0, play: false });
   out.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
