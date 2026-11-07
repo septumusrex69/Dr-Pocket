@@ -133,11 +133,16 @@ h2{font-family:var(--f-display);font-weight:600;font-size:13px;letter-spacing:.0
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-<script src="shoulder-model.js"></script>
-<script>
+<script src="/shoulder/shoulder-model.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { N8AOPass } from 'n8ao';
 (function(){
 const V=(x,y,z)=>new THREE.Vector3(x,y,z);
 const rad=d=>d*Math.PI/180;
@@ -146,7 +151,7 @@ const sm=x=>{x=cl01(x);return x*x*(3-2*x);};
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim()||'#888888';
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $=id=>document.getElementById(id);
-const lin=h=>new THREE.Color(h).convertSRGBToLinear();
+const lin=h=>new THREE.Color(h);
 
 /* ---------- landmarks measured from the Z-Anatomy meshes (decimetres, origin = centre of the humeral head) ---------- */
 const R=0.2363;
@@ -157,27 +162,42 @@ if(FR.z<0)FR.negate();
 
 /* ---------- renderer ---------- */
 const stageEl=$('stage');
-const renderer=new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
-renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+const phone=matchMedia('(pointer: coarse)').matches;
+const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,phone?1.5:2));
+renderer.toneMapping=THREE.NeutralToneMapping;renderer.toneMappingExposure=1.05;
 stageEl.appendChild(renderer.domElement);
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(32,1,0.02,80);
-const controls=new THREE.OrbitControls(camera,renderer.domElement);
-controls.enableDamping=true;controls.dampingFactor=.12;controls.rotateSpeed=.45;controls.zoomSpeed=.5;controls.panSpeed=.5;controls.minDistance=.5;controls.maxDistance=14;
-function setBg(){try{scene.background=lin(css('--stage'));}catch(e){}}
+const controls=new OrbitControls(camera,renderer.domElement);controls.zoomToCursor=true;
+controls.enableDamping=true;controls.dampingFactor=.12;controls.rotateSpeed=.45;controls.zoomSpeed=.5;controls.panSpeed=.5;controls.minDistance=.25;controls.maxDistance=14;
+/* soft radial backdrop in the page's stage colour (same as the whole-body page) */
+function setBg(){try{const c=document.createElement('canvas');c.width=c.height=512;const g=c.getContext('2d');
+  const base=new THREE.Color(css('--stage'));const dark=matchMedia('(prefers-color-scheme: dark)').matches||document.documentElement.dataset.theme==='dark';
+  const grad=g.createRadialGradient(256,210,20,256,256,380);
+  grad.addColorStop(0,base.clone().offsetHSL(0,0,dark?.06:.07).getStyle());grad.addColorStop(1,base.clone().offsetHSL(0,0,dark?-.03:-.09).getStyle());
+  g.fillStyle=grad;g.fillRect(0,0,512,512);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;scene.background=t;}catch(e){}}
 setBg();matchMedia('(prefers-color-scheme: dark)').addEventListener('change',setBg);
 new MutationObserver(setBg).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-function env(){const es=new THREE.Scene();const g=new THREE.SphereGeometry(10,32,16);const c=[];const p=g.attributes.position;
+function env(){const pm=new THREE.PMREMGenerator(renderer);scene.environment=pm.fromScene(new RoomEnvironment(),0.04).texture;scene.environmentIntensity=.75;pm.dispose();}
+function oldEnv(){const es=new THREE.Scene();const g=new THREE.SphereGeometry(10,32,16);const c=[];const p=g.attributes.position;
   for(let i=0;i<p.count;i++){const y=p.getY(i)/10;const k=.35+.65*cl01((y+1)/2);c.push(k,k*.98,k*.96);}
   g.setAttribute('color',new THREE.Float32BufferAttribute(c,3));
   es.add(new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.BackSide})));
   [[6,6,6],[-7,3,4],[0,-6,-6]].forEach((q,i)=>{const pl=new THREE.Mesh(new THREE.PlaneGeometry(5,5),new THREE.MeshBasicMaterial({color:new THREE.Color(1,1,1).multiplyScalar(i===0?3:1.4),side:THREE.DoubleSide}));pl.position.set(q[0],q[1],q[2]);pl.lookAt(0,0,0);es.add(pl);});
   const pm=new THREE.PMREMGenerator(renderer);scene.environment=pm.fromScene(es,0.04).texture;pm.dispose();}
 setTimeout(()=>{try{env();}catch(e){}},300);
-scene.add(new THREE.HemisphereLight(0xffffff,0x4d5a57,0.4));
-const key=new THREE.DirectionalLight(0xfff4e8,1.1);key.position.set(-6,9,8);scene.add(key);
-const fill=new THREE.DirectionalLight(0xe8f0ff,0.4);fill.position.set(7,3,-6);scene.add(fill);
+/* studio lighting: warm key from the front-left, cool rim from behind, soft fill from below */
+scene.add(new THREE.HemisphereLight(0xfff8f0,0x3a4542,.55));
+const key=new THREE.DirectionalLight(0xfff1e2,1.6);key.position.set(-6,9,8);scene.add(key);
+const fill=new THREE.DirectionalLight(0xdfeaff,1.1);fill.position.set(7,5,-9);scene.add(fill);
+const fill2=new THREE.DirectionalLight(0xffe6dc,.6);fill2.position.set(-7,2,-6);scene.add(fill2);
+/* soft contact shadows where parts meet, then smooth edges */
+const composer=new EffectComposer(renderer);
+const aoPass=new N8AOPass(scene,camera,1,1);
+aoPass.configuration.aoRadius=.3;aoPass.configuration.distanceFalloff=1;aoPass.configuration.intensity=2.4;
+aoPass.configuration.gammaCorrection=false;aoPass.configuration.halfRes=phone;aoPass.setQualityMode(phone?'Low':'Medium');
+composer.addPass(aoPass);composer.addPass(new OutputPass());composer.addPass(new SMAAPass(1,1));
 
 /* ---------- palettes and materials ---------- */
 const PAL={
@@ -190,10 +210,13 @@ const TEACH_MUS={'Supraspinatus muscle':'#E2774A','Infraspinatus muscle':'#C4523
 let pal='teach';const WORN='#C8B585',TORN='#DD3B3A';
 const std=o=>new THREE.MeshStandardMaterial(Object.assign({roughness:.6,metalness:0,envMapIntensity:.7},o));
 const phys=o=>new THREE.MeshPhysicalMaterial(Object.assign({roughness:.22,clearcoat:.7,clearcoatRoughness:.2,side:THREE.DoubleSide,envMapIntensity:.9},o));
-const mBone=std({roughness:.7}),mHum=std({roughness:.7}),mCostal=std({roughness:.45});
-const mMus=std({vertexColors:true,roughness:.5});
-const mLab=std({vertexColors:true,roughness:.45});
-const mLig=std({vertexColors:true,roughness:.4});
+/* how each tissue catches the light: satin bone, soft sheen on muscle, glossy labrum and ligaments */
+const tissue=o=>new THREE.MeshPhysicalMaterial(Object.assign({metalness:0,envMapIntensity:.8},o));
+const boneLook={roughness:.62,sheen:.25,sheenRoughness:.6,sheenColor:new THREE.Color('#FFF6E5')};
+const mBone=tissue(boneLook),mHum=tissue(boneLook),mCostal=tissue({roughness:.35,clearcoat:.4,clearcoatRoughness:.25});
+const mMus=tissue({vertexColors:true,roughness:.5,sheen:.7,sheenRoughness:.45,sheenColor:new THREE.Color('#FFB3A6'),clearcoat:.12,clearcoatRoughness:.5});
+const mLab=tissue({vertexColors:true,roughness:.35,clearcoat:.5,clearcoatRoughness:.22});
+const mLig=tissue({vertexColors:true,roughness:.35,clearcoat:.45,clearcoatRoughness:.25,sheen:.3,sheenColor:new THREE.Color('#FFFFFF')});
 const mCap=std({vertexColors:true,transparent:true,opacity:.3,depthWrite:false,roughness:.35,side:THREE.DoubleSide});
 const mGlenCart=phys({}),mHeadCart=phys({});
 const mMetal=std({color:lin('#C9D1D6'),metalness:.95,roughness:.18,envMapIntensity:1.2});
@@ -351,7 +374,7 @@ function onModel(gltf){
   loadEl.hidden=true;ready=true;
 }
 function loadModel(){try{const s=atob(window.SHOULDER_GLB);const buf=new Uint8Array(s.length);for(let i=0;i<s.length;i++)buf[i]=s.charCodeAt(i);
-  new THREE.GLTFLoader().parse(buf.buffer,'',onModel,()=>{$('loading-t').textContent='The anatomy model could not be loaded. Reload the page to try again.';});}
+  new GLTFLoader().parse(buf.buffer,'',onModel,()=>{$('loading-t').textContent='The anatomy model could not be loaded. Reload the page to try again.';});}
   catch(e){$('loading-t').textContent='The anatomy model could not be loaded. Reload the page to try again.';}}
 if(window.SHOULDER_GLB)setTimeout(loadModel,30);else window.addEventListener('load',()=>{if(window.SHOULDER_GLB)loadModel();else $('loading-t').textContent='The anatomy model could not be loaded. Reload the page to try again.';});
 let ready=false;
@@ -587,12 +610,12 @@ function flash(m){if(flashed){flashed.m.material=flashed.orig;clearTimeout(flash
 $('info-x').onclick=()=>{$('info').hidden=true;};
 
 /* ---------- loop ---------- */
-function resize(){const w=stageEl.clientWidth,h=stageEl.clientHeight;if(!w||!h)return;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
+function resize(){const w=stageEl.clientWidth,h=stageEl.clientHeight;if(!w||!h)return;renderer.setSize(w,h);composer.setPixelRatio(renderer.getPixelRatio());composer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
 new ResizeObserver(resize).observe(stageEl);resize();
 function loop(now){
   if(poseTw){const k=ease(Math.min(1,(now-poseTw.t0)/poseTw.d));['abd','flex','rot'].forEach(q=>POSE[q]=poseTw.from[q]+(poseTw.to[q]-poseTw.from[q])*k);syncSliders();if(k>=1)poseTw=null;}
   if(camTw){const k=ease(Math.min(1,(now-camTw.t0)/camTw.d));camera.position.lerpVectors(camTw.fp,camTw.tp,k);controls.target.lerpVectors(camTw.ft,camTw.tt,k);if(k>=1)camTw=null;}
-  update();controls.update();renderer.render(scene,camera);requestAnimationFrame(loop);}
+  update();controls.update();composer.render();requestAnimationFrame(loop);}
 renderStep();syncSliders();requestAnimationFrame(loop);
 window.__shoulder={view,POSE,goStep:(c,k)=>{curCase=c;goStep(k);}};
 })();
