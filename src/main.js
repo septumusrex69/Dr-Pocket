@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { initReport } from './report.js';
 
 const $ = (id) => document.getElementById(id);
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888';
@@ -71,7 +72,7 @@ function frameBox(box, { side = 'front', instant = false } = {}) {
   const fov = THREE.MathUtils.degToRad(camera.fov);
   const fitH = s.y / 2 / Math.tan(fov / 2);
   const fitW = Math.max(s.x, s.z) / 2 / Math.tan(fov / 2) / Math.max(camera.aspect, 0.3);
-  const dist = Math.max(fitH, fitW) * 1.25 + Math.max(s.x, s.z) / 2;
+  const dist = Math.max(fitH, fitW) * 1.12 + Math.max(s.x, s.z) / 3;
   const dir = side === 'back' ? new THREE.Vector3(0, 0.08, -1)
     : side === 'right' ? new THREE.Vector3(-1, 0.08, 0.15)
       : new THREE.Vector3(0, 0.08, 1);
@@ -120,6 +121,7 @@ const REGIONS = [
 let activeRegion = 'body';
 
 function goRegion(r, instant) {
+  if (focusIds && selected) select(null);
   const ids = r.find();
   if (!ids.length) return;
   let box = partBox(ids);
@@ -148,13 +150,18 @@ function makeMaterial(sysKey, id) {
     envMapIntensity: 0.6, side: THREE.DoubleSide,
   });
 }
+// While a search result or report finding is shown, every other part is see-through.
+let focusIds = null;
+const isGhost = (sys, m) => sys.ghost || (!!focusIds && !focusIds.has(m.userData.id));
 function applyLook(sys) {
   redraw();
   sys.meshes.forEach((m) => {
     const mat = m.material;
-    const ghost = sys.ghost;
+    const ghost = isGhost(sys, m);
     mat.transparent = ghost;
-    mat.opacity = ghost ? (sys.key === 'skin' ? 0.14 : 0.22) : 1;
+    // parts faded around a finding are fainter than a system switched to see-through
+    const faded = ghost && !sys.ghost;
+    mat.opacity = !ghost ? 1 : faded ? (sys.key === 'skin' ? 0.03 : 0.07) : (sys.key === 'skin' ? 0.14 : 0.22);
     mat.depthWrite = !ghost;
     mat.needsUpdate = true;
     m.renderOrder = ghost ? 2 : 0;
@@ -167,7 +174,7 @@ function paintSelection() {
     const isSel = !!selected && selected.ids.has(m.userData.id);
     m.material.emissive.copy(isSel ? HILITE : new THREE.Color(0));
     // a whole organ gets a softer glow so its own colours still show
-    m.material.emissiveIntensity = isSel ? (selected.ids.size > 1 ? 0.18 : 0.55) : 0;
+    m.material.emissiveIntensity = isSel ? (selected.ids.size > 8 ? 0.18 : 0.45) : 0;
   });
 }
 
@@ -253,12 +260,17 @@ function select(sel) {
   selected = sel;
   paintSelection();
   const info = $('info');
-  if (!sel) { info.hidden = true; return; }
+  if (!sel) { info.hidden = true; clearFocus(); return; }
   $('info-n').textContent = sel.title;
   $('info-s').textContent = sel.sub;
   info.hidden = false;
 }
 const selBox = (f) => grow(partBox([...selected.ids]), f);
+function clearFocus() {
+  if (!focusIds) return;
+  focusIds = null;
+  Object.values(systems).forEach((s) => s.group && applyLook(s));
+}
 $('info-x').onclick = () => select(null);
 $('info-focus').onclick = () => { if (selected) frameBox(selBox(1.6)); };
 $('info-hide').onclick = () => {
@@ -297,7 +309,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const r = renderer.domElement.getBoundingClientRect();
   ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
   const solid = [], ghost = [];
-  Object.values(systems).forEach((s) => s.on && s.meshes.forEach((m) => m.visible && (s.ghost ? ghost : solid).push(m)));
+  Object.values(systems).forEach((s) => s.on && s.meshes.forEach((m) => m.visible && (isGhost(s, m) ? ghost : solid).push(m)));
   // Solid parts win over see-through ones, so you can tap through the skin.
   const hit = ray.intersectObjects(solid, false)[0] || ray.intersectObjects(ghost, false)[0];
   select(hit ? partSelection(hit.object.userData.id) : null);
@@ -343,12 +355,12 @@ async function goTo(sel) {
   const need = new Set([...sel.ids].map((id) => INDEX.parts[id].sys));
   sel.ids.forEach((id) => hiddenParts.delete(id));
   await Promise.all([...need].map((k) => (systems[k].on ? null : setOn(systems[k], true))));
-  // Everything else that is showing fades to see-through, so nothing blocks the view.
-  Object.values(systems).forEach((s) => { if (s.on && !need.has(s.key)) s.ghost = true; });
-  Object.values(systems).forEach((s) => s.group && applyLook(s));
   select(sel);
+  // Everything else fades to see-through, so nothing blocks the view (closing the card brings it back).
+  focusIds = new Set(sel.ids);
+  Object.values(systems).forEach((s) => s.group && applyLook(s));
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
-  frameBox(selBox(1.8));
+  frameBox(selBox(1.3));
   renderSystems();
 }
 
@@ -418,4 +430,15 @@ controls.addEventListener('start', () => { fly = null; });
 tick();
 
 // handy for testing in the browser console
-window.__body = { systems, select, goTo, INDEX: () => INDEX, partMesh };
+window.__body = { systems, select, goTo, INDEX: () => INDEX, partMesh, camera, controls };
+
+/* ---------- report explainer hooks ---------- */
+initReport({
+  // light up these parts, fading everything else (same as picking a search result)
+  showParts: (ids, title, sub) => {
+    const known = ids.filter((id) => INDEX?.parts[id]);
+    if (known.length) goTo({ ids: new Set(known), title, sub });
+  },
+  goRegion: (key) => { const r = REGIONS.find((x) => x.key === key); if (r && INDEX) goRegion(r); },
+  clear: () => reset(),
+});

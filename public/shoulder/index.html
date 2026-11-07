@@ -532,6 +532,8 @@ const CASES={
 
 
 let curCase='healthy',curStep=0;
+/* open on a case from the link, e.g. /shoulder/?case=cuff (used by the report explainer) */
+try{const q=new URLSearchParams(location.search).get('case');if(q&&CASES[q])curCase=q;}catch(e){}
 function stateFor(c,k){const cs=CASES[c];return Object.assign({},DEF,{cond:c},cs.base||{},...cs.steps.slice(0,k+1).map(s=>s.st||{}));}
 function goStep(k){const cs=CASES[curCase];curStep=Math.max(0,Math.min(cs.steps.length-1,k));const s=cs.steps[curStep];
   S=stateFor(curCase,curStep);stepL=Object.assign({},cs.ly||{},s.ly||{});

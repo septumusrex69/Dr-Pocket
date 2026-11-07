@@ -4,6 +4,20 @@ The whole human body in 3D, in the browser. Turn it, show or hide body systems, 
 see-through, tap any part to name it, and search for parts or whole organs (liver, heart, brain…).
 
 The Shoulder walkthrough lives at `/shoulder/` (moved here from the Shoulder Lab artifact).
+`/shoulder/?case=cuff` opens it on a case (`healthy`, `bankart`, `slap`, `cuff`, `oa`, `tight`).
+
+## Explain my scan report
+
+Paste a radiology report (or upload a photo or PDF of it) and get a plain-language explanation,
+with each finding lit up on the 3D body, a glossary and questions for the doctor.
+
+- `api/explain.js` is a Vercel function that sends the report to Claude and returns structured JSON.
+  It needs the `ANTHROPIC_API_KEY` environment variable in the Vercel project settings.
+- Reports are not stored or logged. Each visitor gets a few explanations per hour; the real cost cap
+  is the monthly spend limit set in the Anthropic Console.
+- Claude may only name structures from `api/_vocab.js` (the parts the 3D model has), so findings
+  always map onto the model. `tools/build_vocab.mjs` rebuilds that list and `public/models/vocab.json`
+  whenever the model files change.
 
 ## Run it
 
@@ -35,6 +49,7 @@ python3 tools/classify.py "$SRC" "$WORK/parts.json"
 python3 tools/build_models.py "$SRC" "$WORK/parts.json" "$WORK/glb"
 tools/pack_models.sh "$WORK/glb"
 python3 tools/build_groups.py "$SRC" public/models/index.json public/models/groups.json
+node tools/build_vocab.mjs
 ```
 
 - `classify.py` names every part and sorts it into a body system.
