@@ -169,7 +169,7 @@ renderer.toneMapping=THREE.NeutralToneMapping;renderer.toneMappingExposure=1.05;
 stageEl.appendChild(renderer.domElement);
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(32,1,0.02,80);
-const controls=new OrbitControls(camera,renderer.domElement);controls.zoomToCursor=true;
+const controls=new OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true;controls.dampingFactor=.12;controls.rotateSpeed=.45;controls.zoomSpeed=.5;controls.panSpeed=.5;controls.minDistance=.25;controls.maxDistance=14;
 /* soft radial backdrop in the page's stage colour (same as the whole-body page) */
 function setBg(){try{const c=document.createElement('canvas');c.width=c.height=512;const g=c.getContext('2d');
@@ -615,7 +615,11 @@ new ResizeObserver(resize).observe(stageEl);resize();
 function loop(now){
   if(poseTw){const k=ease(Math.min(1,(now-poseTw.t0)/poseTw.d));['abd','flex','rot'].forEach(q=>POSE[q]=poseTw.from[q]+(poseTw.to[q]-poseTw.from[q])*k);syncSliders();if(k>=1)poseTw=null;}
   if(camTw){const k=ease(Math.min(1,(now-camTw.t0)/camTw.d));camera.position.lerpVectors(camTw.fp,camTw.tp,k);controls.target.lerpVectors(camTw.ft,camTw.tt,k);if(k>=1)camTw=null;}
-  update();controls.update();composer.render();requestAnimationFrame(loop);}
+  update();controls.update();
+  /* quick frames while things move (keeps turning smooth on phones), full quality when still */
+  if(camTw||poseTw||now-lastMove<180)renderer.render(scene,camera);else composer.render();
+  requestAnimationFrame(loop);}
+let lastMove=0;controls.addEventListener('change',()=>{lastMove=performance.now();});
 renderStep();syncSliders();requestAnimationFrame(loop);
 window.__shoulder={view,POSE,goStep:(c,k)=>{curCase=c;goStep(k);}};
 })();

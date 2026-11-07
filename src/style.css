@@ -158,3 +158,5 @@ textarea{font:14px/1.45 var(--f-body);padding:10px 12px;border-radius:9px;border
   .film-bar svg{width:20px;height:20px}
   .pin span{font-size:12px;padding:6px 8px;top:-12px}
 }
+/* phones: show the short controls hint the header hides */
+@media (max-width:520px){header p{display:block;font-size:11.5px;line-height:1.3}}

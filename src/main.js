@@ -42,6 +42,7 @@ const stageEl = $('stage');
 const phone = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, phone ? 1.5 : 2));
+const fullRatio = renderer.getPixelRatio(); // sharpness when still (lower while moving)
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.05;
 stageEl.appendChild(renderer.domElement);
@@ -90,9 +91,12 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.12;
 controls.rotateSpeed = 0.5;
 controls.zoomSpeed = 0.7;
-controls.minDistance = 0.03;
+controls.minDistance = 0.04;
 controls.maxDistance = 8;
-controls.zoomToCursor = true; // pinch or scroll zooms toward the spot under your finger
+controls.rotateSpeed = phone ? 0.9 : 0.6;
+controls.zoomSpeed = phone ? 1.1 : 0.9;
+controls.panSpeed = 0.8;
+controls.screenSpacePanning = true;
 
 /* ---------- post-processing: soft contact shadows, selection outline, smooth edges ---------- */
 const composer = new EffectComposer(renderer);
@@ -119,7 +123,7 @@ function resize() {
   const w = stageEl.clientWidth, h = stageEl.clientHeight;
   if (!w || !h) return;
   renderer.setSize(w, h, false);
-  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setPixelRatio(fullRatio);
   composer.setSize(w, h);
   redraw();
   camera.aspect = w / h;
@@ -142,7 +146,7 @@ function frameBox(box, { side = 'front', instant = false } = {}) {
       : new THREE.Vector3(0, 0.08, 1);
   const to = c.clone().addScaledVector(dir.normalize(), Math.max(dist, 0.15));
   if (instant || reduceMotion) { camera.position.copy(to); controls.target.copy(c); fly = null; controls.update(); return; }
-  fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: to, t1: c, k: 0 };
+  fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: to, t1: c, start: performance.now(), dur: 750 };
 }
 
 /* ---------- data ---------- */
@@ -213,7 +217,8 @@ function makeMaterial(sysKey, id) {
   // small shade changes between neighbouring parts so they read as separate pieces
   const jitter = sysKey === 'skin' ? 0 : (hash(id) - 0.5) * (sysKey === 'muscles' ? 0.14 : 0.07);
   c.offsetHSL(jitter * 0.25, jitter * 0.3, jitter);
-  const look = LOOK[sysKey] || LOOK.organ;
+  const look = { ...(LOOK[sysKey] || LOOK.organ) };
+  if (phone) { delete look.clearcoat; delete look.clearcoatRoughness; }
   return new THREE.MeshPhysicalMaterial({
     color: c, metalness: 0, envMapIntensity: 0.8, side: THREE.DoubleSide,
     ...look, sheenColor: new THREE.Color(look.sheenColor || '#FFFFFF'),
@@ -386,8 +391,22 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   Object.values(systems).forEach((s) => s.on && s.meshes.forEach((m) => m.visible && (isGhost(s, m) ? ghost : solid).push(m)));
   // Solid parts win over see-through ones, so you can tap through the skin.
   const hit = ray.intersectObjects(solid, false)[0] || ray.intersectObjects(ghost, false)[0];
+  const now = performance.now();
+  const double = lastTap && now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30;
+  lastTap = double ? null : { t: now, x: e.clientX, y: e.clientY };
+  if (double && hit) { zoomInTo(hit.point); return; }
   select(hit ? partSelection(hit.object.userData.id) : null);
 });
+let lastTap = null;
+// Fly in toward a spot and make it the centre that the view turns around.
+function zoomInTo(point) {
+  document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const dist = Math.max(controls.minDistance * 2, Math.min(camera.position.distanceTo(point) * 0.45, 0.6));
+  const to = point.clone().addScaledVector(dir, dist);
+  if (reduceMotion) { camera.position.copy(to); controls.target.copy(point); controls.update(); redraw(); return; }
+  fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: to, t1: point.clone(), start: performance.now(), dur: 650 };
+}
 
 /* ---------- search ---------- */
 let names = null;
@@ -485,20 +504,49 @@ async function start() {
 }
 start();
 
-/* ---------- render loop ---------- */
+/* ---------- render loop ----------
+   While you turn, zoom or the camera flies, frames are drawn the quick way (no soft shadows or
+   edge smoothing) so moving stays smooth on phones. Once things are still, one full-quality frame. */
 const frameListeners = new Set();
+let moving = false;
+let settle = null;
+const movingRatio = Math.min(fullRatio, phone ? 1 : 1.25);
+function setMoving(on) {
+  if (moving === on) return;
+  moving = on;
+  // fewer pixels while moving, full sharpness when still
+  if (movingRatio !== fullRatio) {
+    renderer.setPixelRatio(on ? movingRatio : fullRatio);
+    const w = stageEl.clientWidth, h = stageEl.clientHeight;
+    if (w && h) renderer.setSize(w, h, false);
+  }
+  redraw();
+}
+function markMoving() {
+  setMoving(true);
+  clearTimeout(settle);
+  settle = setTimeout(() => { if (!fly) setMoving(false); }, 180);
+}
+controls.addEventListener('change', markMoving);
 controls.addEventListener('change', redraw);
 function tick() {
   if (fly) {
     dirty = true;
-    fly.k = Math.min(1, fly.k + (fly.speed || 0.06));
-    const t = fly.k * fly.k * (3 - 2 * fly.k);
+    if (!moving) setMoving(true);
+    // time-based, so a flight takes the same time on a slow phone as on a fast computer
+    const k = Math.min(1, (performance.now() - fly.start) / fly.dur);
+    const t = k * k * (3 - 2 * k);
     camera.position.lerpVectors(fly.p0, fly.p1, t);
     controls.target.lerpVectors(fly.t0, fly.t1, t);
-    if (fly.k >= 1) fly = null;
+    if (k >= 1) { fly = null; markMoving(); }
   }
   controls.update();
-  if (dirty) { dirty = false; composer.render(); frameListeners.forEach((f) => f()); }
+  if (dirty) {
+    dirty = false;
+    if (moving || fly) renderer.render(scene, camera);
+    else composer.render();
+    frameListeners.forEach((f) => f());
+  }
   requestAnimationFrame(tick);
 }
 controls.addEventListener('start', () => { fly = null; });
@@ -558,7 +606,7 @@ function lookAtPoint(m, { closeness = 1 } = {}) {
   const aim = m.point.clone().add(new THREE.Vector3(0, -dist * 0.16, 0));
   const to = aim.clone().addScaledVector(dir, dist);
   if (reduceMotion) { camera.position.copy(to); controls.target.copy(aim); fly = null; controls.update(); redraw(); return; }
-  fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: to, t1: aim, k: 0, speed: 0.025 };
+  fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: to, t1: aim, start: performance.now(), dur: 1300 };
 }
 // Screen position of a 3D point inside the viewer (null when behind the camera).
 function toScreen(p) {
