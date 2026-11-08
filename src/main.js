@@ -15,6 +15,7 @@ const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n
 // Draw only when something changed, to save battery on phones.
 let dirty = true;
 function redraw() { dirty = true; }
+let cine = null; // the guided camera shot in progress (see the camera director below)
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---------- colours for each body system (teaching colours, as in Shoulder Lab) ---------- */
@@ -226,21 +227,34 @@ function makeMaterial(sysKey, id) {
 }
 // While a search result or report finding is shown, every other part is see-through.
 let focusIds = null;
-const isGhost = (sys, m) => sys.ghost || (!!focusIds && !focusIds.has(m.userData.id));
+const isGhost = (sys, m) => lookOf(sys, m).ghost;
+/* How see-through the surroundings get around a focused part: bones stay clearly visible and
+   muscles faintly, so the spot still sits inside an intact body. focusFade animates 0 -> 1. */
+const FOCUS_OPACITY = { skin: 0.04, skeleton: 0.38, muscles: 0.14, joints: 0.22, cartilage: 0.3 };
+let focusFade = 1;
+function lookOf(sys, m) {
+  if (sys.ghost) return { ghost: true, opacity: sys.key === 'skin' ? 0.14 : 0.22 };
+  if (focusIds && !focusIds.has(m.userData.id)) {
+    const target = FOCUS_OPACITY[sys.key] ?? 0.16;
+    const opacity = 1 + (target - 1) * focusFade;
+    return { ghost: opacity < 0.999, opacity };
+  }
+  return { ghost: false, opacity: 1 };
+}
 function applyLook(sys) {
   redraw();
   sys.meshes.forEach((m) => {
     const mat = m.material;
-    const ghost = isGhost(sys, m);
-    mat.transparent = ghost;
-    // parts faded around a finding are fainter than a system switched to see-through
-    const faded = ghost && !sys.ghost;
-    mat.opacity = !ghost ? 1 : faded ? (sys.key === 'skin' ? 0.03 : 0.07) : (sys.key === 'skin' ? 0.14 : 0.22);
-    mat.depthWrite = !ghost;
-    mat.needsUpdate = true;
+    const { ghost, opacity } = lookOf(sys, m);
+    if (mat.transparent !== ghost) { mat.transparent = ghost; mat.depthWrite = !ghost; mat.needsUpdate = true; }
+    mat.opacity = opacity;
     m.renderOrder = ghost ? 2 : 0;
     m.visible = sys.on && !hiddenParts.has(m.userData.id);
   });
+}
+function setFocusFade(v) {
+  focusFade = v;
+  Object.values(systems).forEach((s) => s.group && applyLook(s));
 }
 function paintSelection() {
   redraw();
@@ -351,6 +365,13 @@ function clearFocus() {
   Object.values(systems).forEach((s) => s.group && applyLook(s));
 }
 $('info-x').onclick = () => select(null);
+$('info-tour').onclick = async () => {
+  if (!selected) return;
+  const sel = selected;
+  await goTo(sel, { noFrame: true, fade: 0 });
+  const m = markerFor([...sel.ids]);
+  if (m) cinematic(m, { orbitDeg: 70 });
+};
 $('info-focus').onclick = () => { if (selected) frameBox(selBox(1.6)); };
 $('info-hide').onclick = () => {
   if (!selected) return;
@@ -444,14 +465,14 @@ function runSearch() {
 }
 $('q').addEventListener('input', runSearch);
 
-async function goTo(sel, { noFrame = false } = {}) {
+async function goTo(sel, { noFrame = false, fade = 1 } = {}) {
   const need = new Set([...sel.ids].map((id) => INDEX.parts[id].sys));
   sel.ids.forEach((id) => hiddenParts.delete(id));
   await Promise.all([...need].map((k) => (systems[k].on ? null : setOn(systems[k], true))));
   select(sel);
   // Everything else fades to see-through, so nothing blocks the view (closing the card brings it back).
   focusIds = new Set(sel.ids);
-  Object.values(systems).forEach((s) => s.group && applyLook(s));
+  setFocusFade(fade);
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
   if (!noFrame) frameBox(selBox(1.3));
   renderSystems();
@@ -523,13 +544,16 @@ function setMoving(on) {
   redraw();
 }
 function markMoving() {
+  if (cineFrame && !phone) return; // the director's own camera moves don't count as dragging
   setMoving(true);
   clearTimeout(settle);
   settle = setTimeout(() => { if (!fly) setMoving(false); }, 180);
 }
 controls.addEventListener('change', markMoving);
 controls.addEventListener('change', redraw);
+let cineFrame = false;
 function tick() {
+  if (cine) { updateCine(performance.now()); dirty = true; cineFrame = true; }
   if (fly) {
     dirty = true;
     if (!moving) setMoving(true);
@@ -541,15 +565,18 @@ function tick() {
     if (k >= 1) { fly = null; markMoving(); }
   }
   controls.update();
+  cineFrame = false;
   if (dirty) {
     dirty = false;
-    if (moving || fly) renderer.render(scene, camera);
+    // quick frames whenever the camera moves (guided shots keep full sharpness on computers);
+    // the full shading fills in as soon as it stops
+    if (moving || fly || cine) renderer.render(scene, camera);
     else composer.render();
     frameListeners.forEach((f) => f());
   }
   requestAnimationFrame(tick);
 }
-controls.addEventListener('start', () => { fly = null; });
+controls.addEventListener('start', () => { fly = null; cine = null; });
 tick();
 
 // handy for testing in the browser console
@@ -595,12 +622,7 @@ function markerFor(focusIds, nearIds) {
 }
 /* Fly so the point is in the middle, seen from outside the body. */
 function lookAtPoint(m, { closeness = 1 } = {}) {
-  const out = new THREE.Vector3(m.point.x, 0, m.point.z - 0.08); // away from the body's centre line
-  if (out.lengthSq() < 1e-4) out.set(0, 0, 1);
-  out.normalize();
-  const dir = out.multiplyScalar(0.75).add(m.normal.clone().normalize().multiplyScalar(0.25));
-  dir.y += 0.18;
-  dir.normalize();
+  const dir = outwardDir(m);
   const dist = THREE.MathUtils.clamp(m.size * 1.6, 0.22, 0.75) / closeness;
   // aim a little below the spot so it sits in the upper part of the view, clear of the subtitles
   const aim = m.point.clone().add(new THREE.Vector3(0, -dist * 0.16, 0));
@@ -608,6 +630,72 @@ function lookAtPoint(m, { closeness = 1 } = {}) {
   if (reduceMotion) { camera.position.copy(to); controls.target.copy(aim); fly = null; controls.update(); redraw(); return; }
   fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: to, t1: aim, start: performance.now(), dur: 1300 };
 }
+/* ---------- the camera director ----------
+   A guided shot of a spot: start wide with the body intact, glide in while the surroundings fade,
+   then circle slowly around it until the scene changes. Touching the screen hands control back.
+   (its state, `cine`, is declared at the top because the render loop starts early) */
+const ease = (k) => k * k * (3 - 2 * k);
+function outwardDir(m) {
+  const out = new THREE.Vector3(m.point.x, 0, m.point.z - 0.08); // away from the body's centre line
+  if (out.lengthSq() < 1e-4) out.set(0, 0, 1);
+  out.normalize();
+  const dir = out.multiplyScalar(0.75).add(m.normal.clone().normalize().multiplyScalar(0.25));
+  dir.y += 0.18;
+  return dir.normalize();
+}
+function cinematic(m, { wideShot = true, fade = true, orbitDeg = 38, closeness = 1, distance = null } = {}) {
+  const dir = outwardDir(m);
+  const close = distance ?? THREE.MathUtils.clamp(m.size * 1.6, 0.22, 0.75) / closeness;
+  const aim = m.point.clone().add(new THREE.Vector3(0, -close * 0.16, 0)); // spot sits above the subtitles
+  if (reduceMotion) {
+    camera.position.copy(aim).addScaledVector(dir, close); controls.target.copy(aim);
+    controls.update(); if (fade) setFocusFade(1); cine = null; redraw(); return;
+  }
+  fly = null;
+  cine = {
+    aim, dir, close, wide: Math.max(close * 2.4, 0.85), wideShot, fade, orbit: THREE.MathUtils.degToRad(orbitDeg),
+    from: camera.position.clone(), fromT: controls.target.clone(), t0: performance.now(),
+  };
+  if (fade) setFocusFade(0);
+}
+const _q = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _side = new THREE.Vector3();
+function shotPos(c, yaw, pitch, dist) {
+  const d = c.dir.clone().applyQuaternion(_q.setFromAxisAngle(_up, yaw));
+  _side.crossVectors(_up, d).normalize();
+  d.applyQuaternion(_q.setFromAxisAngle(_side, -pitch)).normalize();
+  return c.aim.clone().addScaledVector(d, dist);
+}
+function updateCine(now) {
+  const c = cine, t = (now - c.t0) / 1000;
+  const A = c.wideShot ? 1.3 : 0, B = 2.2; // establish, push in (seconds); then orbit
+  const startYaw = -c.orbit * 0.6;
+  if (t < A) { // establishing shot: glide from wherever we are to a wide view, body intact
+    const k = ease(t / A);
+    camera.position.lerpVectors(c.from, shotPos(c, startYaw, 0.12, c.wide), k);
+    controls.target.lerpVectors(c.fromT, c.aim, k);
+    return;
+  }
+  if (t < A + B) { // push in, turning a little, while the layers in front fade away
+    const k = ease((t - A) / B);
+    const from = c.wideShot ? shotPos(c, startYaw, 0.12, c.wide) : c.from;
+    const to = shotPos(c, startYaw * 0.4, 0.05, c.close);
+    camera.position.lerpVectors(from, to, k);
+    if (!c.wideShot) controls.target.lerpVectors(c.fromT, c.aim, k); else controls.target.copy(c.aim);
+    if (c.fade) setFocusFade(k);
+    return;
+  }
+  // slow orbit back and forth around the spot, with a gentle drift in height and distance
+  const o = t - A - B;
+  const ramp = Math.min(1, o / 1.5);
+  const yaw = startYaw * 0.4 + Math.sin(o * 0.32) * c.orbit * ramp;
+  const pitch = 0.05 + Math.sin(o * 0.21) * 0.1 * ramp;
+  const dist = c.close * (1 - 0.06 * Math.sin(o * 0.27) * ramp);
+  camera.position.copy(shotPos(c, yaw, pitch, dist));
+  controls.target.copy(c.aim);
+  if (c.fade && focusFade < 1) setFocusFade(1);
+}
+function stopCine() { cine = null; setMoving(true); markMoving(); }
+
 // Screen position of a 3D point inside the viewer (null when behind the camera).
 function toScreen(p) {
   _v.copy(p).project(camera);
@@ -618,13 +706,13 @@ function toScreen(p) {
 
 /* ---------- report explainer hooks ---------- */
 initReport({
-  markerFor, lookAtPoint, toScreen,
+  markerFor, lookAtPoint, toScreen, cinematic, stopCine,
   onFrame: (f) => { frameListeners.add(f); redraw(); return () => frameListeners.delete(f); },
   // light up parts with a colour, fade everything else, and stay put (the walkthrough moves the camera)
   focusParts: async (ids, title, sub, tint, tintIds) => {
     const known = ids.filter((id) => INDEX?.parts[id]);
     if (!known.length) return false;
-    await goTo({ ids: new Set(known), title, sub, tint: tint && { color: new THREE.Color(tint), ids: new Set(tintIds || known) } }, { noFrame: true });
+    await goTo({ ids: new Set(known), title, sub, tint: tint && { color: new THREE.Color(tint), ids: new Set(tintIds || known) } }, { noFrame: true, fade: 0 });
     return true;
   },
   // light up these parts, fading everything else (same as picking a search result)
@@ -633,6 +721,18 @@ initReport({
     if (known.length) goTo({ ids: new Set(known), title, sub });
   },
   goRegion: (key) => { const r = REGIONS.find((x) => x.key === key); if (r && INDEX) goRegion(r); },
+  // slow circling shot of a whole region (used for the intro), body intact
+  tourRegion: (key) => {
+    const r = REGIONS.find((x) => x.key === key) || REGIONS[0];
+    if (!INDEX) return;
+    const box = partBox(r.find());
+    const size = box.getSize(new THREE.Vector3());
+    const point = box.getCenter(new THREE.Vector3());
+    select(null);
+    const fit = (Math.max(size.y, size.x / Math.max(camera.aspect, 0.4)) / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const distance = fit * (r.key === 'body' ? 1.1 : 1.6) + Math.max(size.x, size.z) / 2;
+    cinematic({ point, normal: new THREE.Vector3(0, 0, 1), size: 1 }, { wideShot: false, fade: false, orbitDeg: 30, distance });
+  },
   deselect: () => select(null),
   clear: () => reset(),
 });

@@ -119,7 +119,7 @@ export function createFilm(body) {
       if (!ok || scenes[i] !== sc) return;
       const m = body.markerFor(sc.focusIds.length ? sc.focusIds : sc.ids, sc.nearIds);
       if (m) {
-        body.lookAtPoint(m);
+        body.cinematic(m); // wide shot, glide in while the layers fade, then circle the spot
         pin = { point: m.point };
         const el = $('pin');
         el.style.setProperty('--pin', color);
@@ -128,8 +128,7 @@ export function createFilm(body) {
         placePin();
       }
     } else {
-      body.deselect();
-      body.goRegion(sc.region || region);
+      body.tourRegion(sc.region || region); // slow circling shot of the region, body intact
     }
   }
 
@@ -149,10 +148,12 @@ export function createFilm(body) {
     });
   }
   function still(k) { stopVoice(); run++; playing = false; renderBar(); show(k); }
+  // a scene opened while paused still gets its guided camera move; Pause or a touch stops it
 
   function pause() {
     run++;
     playing = false;
+    body.stopCine();
     stopVoice();
     renderBar();
   }
@@ -213,6 +214,7 @@ export function createFilm(body) {
     pin = null;
     placePin();
     $('film').hidden = true;
+    body.stopCine();
     viewer.classList.remove('filming');
     document.body.classList.remove('filming');
     if (offFrame) { offFrame(); offFrame = null; }
