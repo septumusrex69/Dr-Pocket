@@ -548,43 +548,114 @@ function groinZ(y) {
   }
   return GROIN[GROIN.length - 1][1];
 }
-function shapeSkin() {
-  const skin = Object.values(partMesh).find((m) => INDEX.parts[m.userData.id]?.name === 'Skin');
-  if (!skin) return;
-  const pos = skin.geometry.attributes.position;
-  if (!skin.userData.orig) skin.userData.orig = pos.array.slice();
-  const o = skin.userData.orig, a = pos.array;
-  a.set(o);
-  if (sex === 'female') {
-    for (let i = 0; i < a.length; i += 3) {
-      let x = o[i], y = o[i + 1], z = o[i + 2];
-      if (z > 0.12) { // front of the chest: breasts
-        for (const sgn of [-1, 1]) {
-          const dx = x - sgn * 0.095, dy = y - 1.198;
-          const sy = dy < 0 ? 0.06 : 0.052;
-          // a rounder, softer shape: flatter top than a plain bell curve
-          const g = Math.exp(-(dx * dx) / (2 * 0.056 * 0.056) - (dy * dy) / (2 * sy * sy));
-          const w = Math.min(1, g * 1.25) ** 1.6;
-          if (w > 0.002) { z += 0.042 * w; x += sgn * 0.007 * w; y -= 0.014 * w; }
-        }
-      }
-      const ax = Math.abs(x);
-      if (ax < 0.05 && y > 0.6 && y < 0.8 && z > 0.03) { // groin: smooth the male external genitals away
-        const wx = 1 - smooth01((ax - 0.032) / 0.016);
-        const wy = 1 - smooth01((y - 0.78) / 0.02);
-        const w = wx * wy;
-        // tuck what hangs below the crotch back between the thighs (hidden by them), and bring the
-        // front of the groin back to a smooth body outline
-        const zs = groinZ(y);
-        if (z > zs) z = z + (zs - z) * w;
-        if (y < 0.73) x *= 1 - 0.45 * w;
-      }
-      a[i] = x; a[i + 1] = y; a[i + 2] = z;
+// smooth curve through (height, value) points
+function curve(points, y) {
+  if (y <= points[0][0]) return points[0][1];
+  for (let k = 1; k < points.length; k++) {
+    if (y <= points[k][0]) {
+      const [y0, v0] = points[k - 1], [y1, v1] = points[k];
+      const t = smooth01((y - y0) / (y1 - y0));
+      return v0 + (v1 - v0) * t;
     }
   }
-  pos.needsUpdate = true;
-  skin.geometry.computeVertexNormals();
-  skin.geometry.computeBoundingSphere();
+  return points[points.length - 1][1];
+}
+// female proportions: width of the torso relative to the male model at each height (arms move with its edge)
+const WIDTH = [[0.45, 1], [0.74, 1], [0.84, 1.09], [0.92, 1.06], [1.0, 0.89], [1.06, 0.9], [1.16, 0.96], [1.26, 0.93], [1.34, 0.91], [1.4, 0.88], [1.44, 0.95], [1.5, 1]];
+const EDGE = [[0.6, 0.17], [0.86, 0.17], [1.0, 0.15], [1.1, 0.16], [1.3, 0.17], [1.4, 0.06]];
+function femaleShape(x, y, z) {
+  const sx = curve(WIDTH, y), edge = curve(EDGE, y);
+  const ax = Math.abs(x), sgn = Math.sign(x) || 1;
+  // torso scaled about the middle; arms (beyond the torso's edge) shifted by the same amount as the edge
+  let nx = x + sgn * (sx - 1) * Math.min(ax, edge);
+  let ny = y, nz = z;
+  // fuller buttocks
+  if (z < 0.05 && y > 0.74 && y < 0.96 && ax < 0.17) {
+    const w = smooth01((y - 0.74) / 0.06) * (1 - smooth01((y - 0.9) / 0.06)) * (1 - smooth01((ax - 0.12) / 0.05));
+    nz -= 0.018 * w;
+  }
+  // face and neck: softer jaw and chin, smoother brow, no Adam's apple
+  if (y > 1.36 && y < 1.6 && z > 0.05) {
+    // narrow the sides of the jaw only, leaving the lips and mouth as they are
+    const jaw = smooth01((y - 1.4) / 0.03) * (1 - smooth01((y - 1.48) / 0.03)) * smooth01((ax - 0.025) / 0.03);
+    nx = x - sgn * 0.012 * jaw + (nx - x);
+    if (y > 1.535 && y < 1.575 && z > 0.155 && ax < 0.06) nz -= 0.004; // brow ridge
+    if (y > 1.37 && y < 1.45 && ax < 0.025 && z > 0.1) nz -= 0.007 * (1 - smooth01((ax - 0.01) / 0.015)); // Adam's apple
+  }
+  return [nx, ny, nz];
+}
+// longer hair: the back and sides grow down towards the shoulders
+function femaleHair(x, y, z) {
+  if (z > 0.12 || y > 1.6) return [x, y, z];
+  const w = smooth01((1.6 - y) / 0.13);
+  return [x * (1 + 0.07 * w), y - 0.15 * w, z - (z < 0.06 ? 0.012 * w : 0)];
+}
+/* For the woman, the small patch of skin where the male genitals hang below the crotch is not
+   drawn at all (a clip in the skin's shader); the thighs behind it close the view. */
+const skinClip = { value: 0 };
+function clipSkin(mesh) {
+  if (mesh.userData.clipped) return;
+  mesh.userData.clipped = true;
+  mesh.material.onBeforeCompile = (shader) => {
+    shader.uniforms.uFemale = skinClip;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBodyPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBodyPos = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBodyPos;\nuniform float uFemale;')
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        if (uFemale > 0.5 && abs(vBodyPos.x) < 0.021 && vBodyPos.y > 0.6 && vBodyPos.y < 0.745 - 70.0 * vBodyPos.x * vBodyPos.x && vBodyPos.z > 0.02) discard;`);
+  };
+  mesh.material.needsUpdate = true;
+}
+function shapeSkin() {
+  const byName = (n) => Object.values(partMesh).find((m) => INDEX.parts[m.userData.id]?.name === n);
+  const skinMesh = byName('Skin');
+  if (skinMesh) clipSkin(skinMesh);
+  skinClip.value = sex === 'female' ? 1 : 0;
+  for (const name of ['Skin', 'Eyebrow', 'Hair of head', 'Pubic hair']) {
+    const mesh = byName(name);
+    if (!mesh) continue;
+    const pos = mesh.geometry.attributes.position;
+    if (!mesh.userData.orig) mesh.userData.orig = pos.array.slice();
+    const o = mesh.userData.orig, a = pos.array;
+    a.set(o);
+    if (sex === 'female') {
+      for (let i = 0; i < a.length; i += 3) {
+        let x = o[i], y = o[i + 1], z = o[i + 2];
+        if (name === 'Skin') {
+          if (z > 0.12) { // front of the chest: breasts
+            for (const sgn of [-1, 1]) {
+              const dx = x - sgn * 0.095, dy = y - 1.198;
+              const sy = dy < 0 ? 0.06 : 0.052;
+              // a rounder, softer shape: flatter top than a plain bell curve
+              const g = Math.exp(-(dx * dx) / (2 * 0.056 * 0.056) - (dy * dy) / (2 * sy * sy));
+              const w = Math.min(1, g * 1.25) ** 1.6;
+              if (w > 0.002) { z += 0.042 * w; x += sgn * 0.007 * w; y -= 0.014 * w; }
+            }
+          }
+          const ax = Math.abs(x);
+          if (ax < 0.05 && y > 0.6 && y < 0.8 && z > 0.03) { // groin: smooth the male external genitals away
+            const wx = 1 - smooth01((ax - 0.032) / 0.016);
+            const wy = 1 - smooth01((y - 0.78) / 0.02);
+            const w = wx * wy;
+            // tuck what hangs below the crotch back between the thighs (hidden by them), and bring the
+            // front of the groin back to a smooth body outline
+            const zs = groinZ(y);
+            if (z > zs) z = z + (zs - z) * w;
+            if (y < 0.73) x *= 1 - 0.45 * w;
+          }
+        }
+        if (name === 'Hair of head') [x, y, z] = femaleHair(x, y, z);
+        // proportions are taken from the original height so nothing drifts
+        const [nx, , nz] = femaleShape(x, o[i + 1], z);
+        a[i] = nx; a[i + 1] = y; a[i + 2] = nz;
+      }
+    }
+    pos.needsUpdate = true;
+    mesh.geometry.computeVertexNormals();
+    mesh.geometry.computeBoundingSphere();
+  }
   redraw();
 }
 function setSex(next) {
