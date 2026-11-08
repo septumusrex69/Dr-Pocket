@@ -561,7 +561,7 @@ function curve(points, y) {
   return points[points.length - 1][1];
 }
 // female proportions: width of the torso relative to the male model at each height (arms move with its edge)
-const WIDTH = [[0.45, 1], [0.74, 1], [0.84, 1.09], [0.92, 1.06], [1.0, 0.89], [1.06, 0.9], [1.16, 0.96], [1.26, 0.93], [1.34, 0.91], [1.4, 0.88], [1.44, 0.95], [1.5, 1]];
+const WIDTH = [[0.45, 1], [0.76, 1], [0.8, 1.08], [0.86, 1.17], [0.92, 1.13], [0.97, 1.0], [1.02, 0.88], [1.07, 0.9], [1.16, 0.96], [1.26, 0.93], [1.34, 0.91], [1.4, 0.88], [1.44, 0.95], [1.5, 1]];
 const EDGE = [[0.6, 0.17], [0.86, 0.17], [1.0, 0.15], [1.1, 0.16], [1.3, 0.17], [1.4, 0.06]];
 function femaleShape(x, y, z) {
   const sx = curve(WIDTH, y), edge = curve(EDGE, y);
@@ -572,23 +572,181 @@ function femaleShape(x, y, z) {
   // fuller buttocks
   if (z < 0.05 && y > 0.74 && y < 0.96 && ax < 0.17) {
     const w = smooth01((y - 0.74) / 0.06) * (1 - smooth01((y - 0.9) / 0.06)) * (1 - smooth01((ax - 0.12) / 0.05));
-    nz -= 0.018 * w;
+    nz -= 0.03 * w;
   }
-  // face and neck: softer jaw and chin, smoother brow, no Adam's apple
+  // face and neck: smoother brow, slimmer jaw angles and chin, finer nose, fuller lips, no Adam's apple
   if (y > 1.36 && y < 1.6 && z > 0.05) {
-    // narrow the sides of the jaw only, leaving the lips and mouth as they are
-    const jaw = smooth01((y - 1.4) / 0.03) * (1 - smooth01((y - 1.48) / 0.03)) * smooth01((ax - 0.025) / 0.03);
-    nx = x - sgn * 0.012 * jaw + (nx - x);
-    if (y > 1.535 && y < 1.575 && z > 0.155 && ax < 0.06) nz -= 0.004; // brow ridge
+    const bump = (v, c, r) => Math.max(0, 1 - ((v - c) / r) ** 2);
+    // brow ridge smoothed back
+    const brow = bump(y, 1.556, 0.024) * (1 - smooth01((ax - 0.045) / 0.03)) * smooth01((z - 0.14) / 0.02);
+    nz -= 0.009 * brow;
+    // jaw angles drawn in (not the lips and mouth)
+    const jaw = bump(y, 1.45, 0.035) * smooth01((ax - 0.03) / 0.02) * (1 - smooth01((z - 0.15) / 0.02));
+    nx -= sgn * 0.014 * jaw;
+    // smaller chin
+    const chin = bump(y, 1.43, 0.016) * (1 - smooth01((ax - 0.015) / 0.02)) * smooth01((z - 0.15) / 0.015);
+    nz -= 0.008 * chin; ny += 0.004 * chin;
+    // finer nose
+    const nose = bump(y, 1.5, 0.03) * (1 - smooth01((ax - 0.008) / 0.014)) * smooth01((z - 0.175) / 0.01);
+    nz -= 0.005 * nose;
+    // slightly fuller lips
+    const lips = bump(y, 1.462, 0.011) * (1 - smooth01((ax - 0.015) / 0.012)) * smooth01((z - 0.168) / 0.008);
+    nz += 0.0025 * lips;
     if (y > 1.37 && y < 1.45 && ax < 0.025 && z > 0.1) nz -= 0.007 * (1 - smooth01((ax - 0.01) / 0.015)); // Adam's apple
   }
   return [nx, ny, nz];
 }
-// longer hair: the back and sides grow down towards the shoulders
-function femaleHair(x, y, z) {
-  if (z > 0.12 || y > 1.6) return [x, y, z];
-  const w = smooth01((1.6 - y) / 0.13);
-  return [x * (1 + 0.07 * w), y - 0.15 * w, z - (z < 0.06 ? 0.012 * w : 0)];
+// finer, slightly higher and arched eyebrows
+function femaleBrow(x, y, z) {
+  const ax = Math.abs(x);
+  const arch = Math.max(0, 1 - ((ax - 0.033) / 0.028) ** 2);
+  return [x, 1.54 + (y - 1.54) * 0.55 + 0.003 + 0.004 * arch, z];
+}
+// breast shape: a dome with a rounded lower curve and a clear fold underneath, and a gentle upper slope
+function breastLift(dx, dy) {
+  const ry = dy < 0 ? 0.054 : 0.075;
+  const r2 = (dx / 0.062) ** 2 + (dy / ry) ** 2;
+  if (r2 >= 1) return 0;
+  return dy < 0 ? (1 - r2) ** 0.5 : smooth01(1 - r2);
+}
+// fine light and dark streaks running down the hair, as vertex colours
+const HAIR = new THREE.Color('#3A2619');
+function streak(th) { return 0.8 + 0.12 * Math.sin(th * 97) + 0.09 * Math.sin(th * 233 + 1.3) + 0.06 * Math.sin(th * 41 + 0.7); }
+function hairColours(geo, zc = 0.065) {
+  const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const th = Math.atan2(pos.getX(i), -(pos.getZ(i) - zc));
+    const k = streak(th) * (0.9 + 0.1 * Math.sin(pos.getY(i) * 60));
+    col[i * 3] = HAIR.r * k; col[i * 3 + 1] = HAIR.g * k; col[i * 3 + 2] = HAIR.b * k;
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+}
+const hairMaterial = () => new THREE.MeshPhysicalMaterial({
+  color: '#ffffff', vertexColors: true, roughness: 0.5, metalness: 0, side: THREE.DoubleSide,
+  sheen: 0.8, sheenRoughness: 0.35, sheenColor: new THREE.Color('#C9A27E'), envMapIntensity: 0.7,
+});
+/* Long hair for the woman: falls from the hairline at the back and sides to the shoulders, draping
+   over the neck and shoulders (kept just outside the skin) with a softly uneven ends line. */
+function buildLongHair(cap, skin) {
+  const zc = 0.065, NA = 96, NV = 30, YMIN = 1.2, YMAX = 1.66, NY = 92;
+  const angleOf = (x, z) => Math.atan2(x, -(z - zc)); // 0 = back of the head
+  // how far out the skin reaches at each angle and height (to keep the hair outside it)
+  const reach = new Float32Array(NA * NY);
+  const sp = skin.geometry.attributes.position;
+  for (let i = 0; i < sp.count; i++) {
+    const x = sp.getX(i), y = sp.getY(i), z = sp.getZ(i);
+    if (y < YMIN || y > YMAX || Math.abs(x) > 0.3) continue;
+    const a = Math.floor(((angleOf(x, z) + Math.PI) / (2 * Math.PI)) * NA) % NA;
+    const b = Math.min(NY - 1, Math.floor(((y - YMIN) / (YMAX - YMIN)) * NY));
+    reach[a * NY + b] = Math.max(reach[a * NY + b], Math.hypot(x, z - zc));
+  }
+  const skinReach = (th, y) => {
+    const a = Math.floor(((th + Math.PI) / (2 * Math.PI)) * NA) % NA;
+    const b = Math.min(NY - 1, Math.max(0, Math.floor(((y - YMIN) / (YMAX - YMIN)) * NY)));
+    let r = 0;
+    for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) {
+      const aa = (a + da + NA) % NA, bb = Math.min(NY - 1, Math.max(0, b + db));
+      r = Math.max(r, reach[aa * NY + bb]);
+    }
+    return r;
+  };
+  // lower edge of the short hair cap at each angle
+  const cp = cap.geometry.attributes.position;
+  const edgeY = new Float32Array(NA).fill(9), edgeR = new Float32Array(NA);
+  for (let i = 0; i < cp.count; i++) {
+    const x = cp.getX(i), y = cp.getY(i), z = cp.getZ(i);
+    const a = Math.floor(((angleOf(x, z) + Math.PI) / (2 * Math.PI)) * NA) % NA;
+    if (y < edgeY[a]) { edgeY[a] = y; edgeR[a] = Math.hypot(x, z - zc); }
+  }
+  const SPAN = 2.25; // radians each side of the back: the hair frames the face but does not cover it
+  const cols = 72;
+  const verts = [], cols3 = [], idx = [];
+  const radii = [];
+  for (let j = 0; j <= cols; j++) {
+    const th = -SPAN + (2 * SPAN * j) / cols;
+    const a = Math.floor(((th + Math.PI) / (2 * Math.PI)) * NA) % NA;
+    const y0 = edgeY[a] < 9 ? edgeY[a] + 0.012 : 1.5;
+    const r0 = edgeR[a] || 0.085;
+    const side = smooth01((Math.abs(th) - 0.9) / 1.2); // 0 at the back, 1 at the sides by the face
+    const yEnd = 1.31 + 0.1 * side + 0.012 * Math.sin(th * 7) + 0.006 * Math.sin(th * 13 + 1);
+    const col = [];
+    for (let k = 0; k <= NV; k++) {
+      const v = k / NV;
+      const y = y0 + (yEnd - y0) * v;
+      let r = r0 + 0.004 + 0.02 * v ** 1.3;
+      r = Math.max(r, skinReach(th, y) + 0.008);
+      col.push([th, y, r, v]);
+    }
+    radii.push(col);
+  }
+  // smooth the radii across neighbouring columns so the drape has no jagged steps
+  for (let pass = 0; pass < 2; pass++) {
+    for (let j = 1; j < cols; j++) for (let k = 0; k <= NV; k++) {
+      radii[j][k][2] = (radii[j - 1][k][2] + 2 * radii[j][k][2] + radii[j + 1][k][2]) / 4;
+    }
+  }
+  radii.forEach((col) => col.forEach(([th, y, r, v]) => {
+    verts.push(Math.sin(th) * r, y, zc - Math.cos(th) * r);
+    const k = streak(th) * (0.95 + 0.12 * v); // tips a little lighter
+    cols3.push(HAIR.r * k, HAIR.g * k, HAIR.b * k);
+  }));
+  for (let j = 0; j < cols; j++) for (let k = 0; k < NV; k++) {
+    const a = j * (NV + 1) + k, b = (j + 1) * (NV + 1) + k;
+    idx.push(a, b, a + 1, b, b + 1, a + 1);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols3, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, hairMaterial());
+}
+/* Nipples and areolae on the skin (both sexes; larger for the woman), placed at the most forward
+   point of the chest near where they belong. */
+function buildNipples(skin) {
+  const pos = skin.geometry.attributes.position, nrm = skin.geometry.attributes.normal;
+  const out = [];
+  for (const sgn of [-1, 1]) {
+    const cx = sgn * (sex === 'female' ? 0.097 : 0.098), cy = sex === 'female' ? 1.19 : 1.235;
+    let best = -1, bz = -1;
+    for (let i = 0; i < pos.count; i++) {
+      const dx = pos.getX(i) - cx, dy = pos.getY(i) - cy;
+      if (dx * dx + dy * dy < 0.018 * 0.018 && pos.getZ(i) > bz) { bz = pos.getZ(i); best = i; }
+    }
+    if (best < 0) continue;
+    const p = new THREE.Vector3(pos.getX(best), pos.getY(best), pos.getZ(best));
+    const n = new THREE.Vector3(nrm.getX(best), nrm.getY(best), nrm.getZ(best)).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    const ar = sex === 'female' ? 0.017 : 0.0095;
+    const areola = new THREE.Mesh(new THREE.CircleGeometry(ar, 40), new THREE.MeshPhysicalMaterial({ color: sex === 'female' ? '#BF8873' : '#C79482', roughness: 0.55, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
+    areola.geometry.applyQuaternion(q); areola.geometry.translate(p.x + n.x * 0.0006, p.y + n.y * 0.0006, p.z + n.z * 0.0006);
+    const nr = sex === 'female' ? 0.0048 : 0.003;
+    const nipple = new THREE.Mesh(new THREE.SphereGeometry(nr, 20, 14), new THREE.MeshPhysicalMaterial({ color: '#AE7663', roughness: 0.55 }));
+    nipple.geometry.scale(1, 1, 0.85); nipple.geometry.applyQuaternion(q);
+    nipple.geometry.translate(p.x + n.x * nr * 0.6, p.y + n.y * nr * 0.6, p.z + n.z * nr * 0.6);
+    const side = sgn < 0 ? 'Right' : 'Left';
+    out.push([`${side} areola`, areola], [`${side} nipple`, nipple]);
+  }
+  return out;
+}
+// add or replace made-up skin parts (long hair, nipples) in the skin layer
+function setSkinExtras(list) {
+  const sys = systems.skin;
+  if (!sys?.group) return;
+  sys.meshes = sys.meshes.filter((m) => {
+    if (!m.userData.extra) return true;
+    sys.group.remove(m); m.geometry.dispose(); delete partMesh[m.userData.id]; delete INDEX.parts[m.userData.id];
+    return false;
+  });
+  list.forEach(([name, mesh], k) => {
+    const id = `SK${k}`;
+    mesh.geometry.computeBoundingBox();
+    const bb = mesh.geometry.boundingBox;
+    INDEX.parts[id] = { name, sys: 'skin', drawn: true, b: [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z] };
+    mesh.userData.id = id; mesh.userData.sys = 'skin'; mesh.userData.extra = true;
+    partMesh[id] = mesh; sys.meshes.push(mesh); sys.group.add(mesh);
+  });
+  applyLook(sys);
 }
 /* For the woman, the small patch of skin where the male genitals hang below the crotch is not
    drawn at all (a clip in the skin's shader); the thighs behind it close the view. */
@@ -626,12 +784,8 @@ function shapeSkin() {
         if (name === 'Skin') {
           if (z > 0.12) { // front of the chest: breasts
             for (const sgn of [-1, 1]) {
-              const dx = x - sgn * 0.095, dy = y - 1.198;
-              const sy = dy < 0 ? 0.06 : 0.052;
-              // a rounder, softer shape: flatter top than a plain bell curve
-              const g = Math.exp(-(dx * dx) / (2 * 0.056 * 0.056) - (dy * dy) / (2 * sy * sy));
-              const w = Math.min(1, g * 1.25) ** 1.6;
-              if (w > 0.002) { z += 0.042 * w; x += sgn * 0.007 * w; y -= 0.014 * w; }
+              const w = breastLift(x - sgn * 0.095, y - 1.205);
+              if (w > 0) { z += 0.056 * w; x += sgn * 0.006 * w; y -= 0.012 * w; }
             }
           }
           const ax = Math.abs(x);
@@ -646,15 +800,27 @@ function shapeSkin() {
             if (y < 0.73) x *= 1 - 0.45 * w;
           }
         }
-        if (name === 'Hair of head') [x, y, z] = femaleHair(x, y, z);
+        if (name === 'Eyebrow') [x, y, z] = femaleBrow(x, y, z);
         // proportions are taken from the original height so nothing drifts
-        const [nx, , nz] = femaleShape(x, o[i + 1], z);
-        a[i] = nx; a[i + 1] = y; a[i + 2] = nz;
+        const [nx, ny, nz] = femaleShape(x, o[i + 1], z);
+        a[i] = nx; a[i + 1] = y + (ny - o[i + 1]); a[i + 2] = nz;
       }
     }
     pos.needsUpdate = true;
     mesh.geometry.computeVertexNormals();
     mesh.geometry.computeBoundingSphere();
+  }
+  // natural-looking hair: streaked colour on the cap, and long hair for the woman; nipples for both
+  const cap = byName('Hair of head');
+  if (cap && !cap.userData.streaked) {
+    cap.userData.streaked = true;
+    hairColours(cap.geometry);
+    cap.material = hairMaterial();
+  }
+  if (skinMesh) {
+    const extras = buildNipples(skinMesh);
+    if (sex === 'female' && cap) extras.unshift(['Long hair', buildLongHair(cap, skinMesh)]);
+    setSkinExtras(extras);
   }
   redraw();
 }
