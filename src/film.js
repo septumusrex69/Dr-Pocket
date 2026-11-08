@@ -36,7 +36,14 @@ if (canSpeak) {
   speechSynthesis.addEventListener?.('voiceschanged', () => { voice = pickVoice(); });
 }
 
-export function createFilm(body) {
+const sentencesOf = (text) => (String(text || '').match(/[^.!?]+[.!?]*/g) || []).map((x) => x.trim()).filter(Boolean);
+function subtitle(s) {
+  const el = $('film-text');
+  el.textContent = s || '';
+  el.hidden = !s;
+}
+
+export function createFilm(body, { onScene } = {}) {
   const viewer = document.querySelector('.viewer');
   let scenes = [];
   let region = 'body';
@@ -59,14 +66,22 @@ export function createFilm(body) {
     if (canSpeak) speechSynthesis.cancel();
   }
 
-  /* Read the text sentence by sentence (long single utterances get cut off in some browsers).
-     A watchdog moves on if a browser never reports the end of a sentence. */
+  /* Read the text sentence by sentence (long single utterances get cut off in some browsers),
+     showing each sentence as a subtitle while it is spoken. Without a voice, the subtitles
+     move on at reading pace. A watchdog moves on if a browser never reports the end of a sentence. */
   function narrate(text, done) {
     const my = ++token;
-    const sentences = (String(text || '').match(/[^.!?]+[.!?]*/g) || []).map((x) => x.trim()).filter(Boolean);
-    const words = String(text || '').split(/\s+/).length;
+    const sentences = sentencesOf(text);
     if (!voiceOn || !canSpeak || !sentences.length) {
-      later(() => my === token && done(), Math.max(4000, words * 400));
+      let k = 0;
+      const next = () => {
+        if (my !== token) return;
+        if (k >= sentences.length) { done(); return; }
+        const s = sentences[k++];
+        subtitle(s);
+        later(next, Math.max(2200, s.split(/\s+/).length * 380));
+      };
+      next();
       return;
     }
     let k = 0;
@@ -75,6 +90,7 @@ export function createFilm(body) {
       clearTimers();
       if (k >= sentences.length) { done(); return; }
       const s = sentences[k++];
+      subtitle(s);
       const u = new SpeechSynthesisUtterance(s);
       if (voice) u.voice = voice;
       u.lang = voice?.lang || 'en-GB';
@@ -105,11 +121,8 @@ export function createFilm(body) {
     const sc = scenes[i];
     renderBar();
     $('film-title').textContent = sc.title;
-    $('film-text').textContent = sc.text;
-    const list = $('film-list');
-    list.innerHTML = '';
-    (sc.list || []).forEach((q) => { const li = document.createElement('li'); li.textContent = q; list.appendChild(li); });
-    list.hidden = !(sc.list || []).length;
+    subtitle(sentencesOf(sc.text)[0] || sc.text);
+    onScene?.(i, sc);
 
     pin = null;
     placePin();

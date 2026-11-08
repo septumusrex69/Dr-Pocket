@@ -154,7 +154,16 @@ function renderPages() {
 }
 
 export function initReport(body) {
-  film = createFilm(body);
+  // while the walkthrough plays, the finding being shown is highlighted in the side panel
+  film = createFilm(body, {
+    onScene: (i, sc) => {
+      document.querySelectorAll('.finding').forEach((b) => {
+        const on = sc.kind === 'finding' && Number(b.dataset.i) === i - 1;
+        b.setAttribute('aria-pressed', on);
+        if (on) b.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    },
+  });
   // My reports: open a saved one without calling the server again, or explain it again
   arc = initArchive({
     open: (r) => {

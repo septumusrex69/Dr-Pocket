@@ -35,11 +35,8 @@
       <div class="views" id="views" role="group" aria-label="Zoom to a region"></div>
       <div class="pin" id="pin" hidden><i></i><span id="pin-label"></span></div>
       <div class="film" id="film" hidden>
-        <div class="film-cap" aria-live="polite">
-          <b id="film-title"></b>
-          <p id="film-text"></p>
-          <ol id="film-list" hidden></ol>
-        </div>
+        <div class="film-head"><b id="film-title"></b></div>
+        <p class="film-sub" id="film-text" aria-live="polite"></p>
         <div class="film-bar" role="group" aria-label="Walkthrough controls">
           <button id="film-prev" aria-label="Previous scene"></button>
           <button id="film-play" class="play" aria-label="Play"></button>

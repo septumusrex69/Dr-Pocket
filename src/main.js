@@ -99,6 +99,7 @@ controls.rotateSpeed = phone ? 0.9 : 0.6;
 controls.zoomSpeed = phone ? 1.1 : 0.9;
 controls.panSpeed = 0.8;
 controls.screenSpacePanning = true;
+controls.zoomToCursor = true; // pinch or scroll zooms toward the spot under your finger, which becomes the new centre
 
 /* ---------- post-processing: soft contact shadows, selection outline, smooth edges ---------- */
 const composer = new EffectComposer(renderer);
@@ -654,15 +655,16 @@ function outwardDir(m) {
 }
 function cinematic(m, { wideShot = true, fade = true, orbitDeg = 38, closeness = 1, distance = null } = {}) {
   const dir = outwardDir(m);
-  const close = distance ?? THREE.MathUtils.clamp(m.size * 1.6, 0.22, 0.75) / closeness;
-  const aim = m.point.clone().add(new THREE.Vector3(0, -close * 0.16, 0)); // spot sits above the subtitles
+  // far enough back to see the whole area (the whole shoulder, the whole knee), with the spot in it
+  const close = distance ?? THREE.MathUtils.clamp(m.size * 2.8, 0.42, 1.0) / closeness;
+  const aim = m.point.clone().add(new THREE.Vector3(0, -close * 0.07, 0)); // spot sits a little above the subtitles
   if (reduceMotion) {
     camera.position.copy(aim).addScaledVector(dir, close); controls.target.copy(aim);
     controls.update(); if (fade) setFocusFade(1); cine = null; redraw(); return;
   }
   fly = null;
   cine = {
-    aim, dir, close, wide: Math.max(close * 2.4, 0.85), wideShot, fade, orbit: THREE.MathUtils.degToRad(orbitDeg),
+    aim, dir, close, wide: Math.max(close * 2.0, 1.1), wideShot, fade, orbit: THREE.MathUtils.degToRad(orbitDeg),
     from: camera.position.clone(), fromT: controls.target.clone(), t0: performance.now(),
   };
   if (fade) setFocusFade(0);
