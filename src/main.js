@@ -337,7 +337,7 @@ function loadSystem(sys) {
   if (sys.group || sys.loading) return sys.loading;
   renderSystems();
   sys.loading = new Promise((resolve, reject) => {
-    loader.load(`/models/${sys.file}`, (gltf) => {
+    loader.load(`/models/${sys.file}?v=${__MODELS_VERSION__}`, (gltf) => {
       const group = new THREE.Group();
       const found = [];
       gltf.scene.traverse((o) => { if (o.isMesh) found.push(o); });
@@ -939,7 +939,7 @@ $('reset').onclick = reset;
 /* ---------- start ---------- */
 async function start() {
   try {
-    [INDEX, GROUPS] = await Promise.all(['/models/index.json', '/models/groups.json'].map((u) => fetch(u).then((r) => r.json())));
+    [INDEX, GROUPS] = await Promise.all(['/models/index.json', '/models/groups.json'].map((u) => fetch(`${u}?v=${__MODELS_VERSION__}`).then((r) => r.json())));
   } catch (e) {
     $('loading-t').textContent = 'The body model could not be loaded. Reload the page to try again.';
     return;

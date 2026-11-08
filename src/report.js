@@ -181,7 +181,7 @@ export function initReport(body) {
       $('rep-go').click();
     },
   });
-  fetch('/models/vocab.json').then((r) => r.json()).then((v) => { vocab = v; }).catch(() => {});
+  fetch(`/models/vocab.json?v=${__MODELS_VERSION__}`).then((r) => r.json()).then((v) => { vocab = v; }).catch(() => {});
 
   async function addFiles(list) {
     showError('');
