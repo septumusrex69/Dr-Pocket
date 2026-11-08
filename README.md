@@ -15,6 +15,10 @@ with each finding lit up on the 3D body, a glossary and questions for the doctor
   It needs the `ANTHROPIC_API_KEY` environment variable in the Vercel project settings.
 - Reports are not stored or logged. Each visitor gets a few explanations per hour; the real cost cap
   is the monthly spend limit set in the Anthropic Console.
+- **My reports** (`src/archive.js`): every explained report is saved on the device (IndexedDB): its pages,
+  the explanation (which also replays the walkthrough without calling the server), and the follow-up
+  questions. Open, view photos, rename, explain again, delete, and download or restore a backup file.
+  Nothing is stored on the server. Saving can be switched off.
 - **Narrated walkthrough** (`src/film.js`): an intro, one scene per finding and a closing scene with
   the questions. Each finding scene colours the part by the kind of change, pins a pulsing marker where
   the part meets its neighbour (e.g. where a tendon attaches to bone), flies the camera there and reads

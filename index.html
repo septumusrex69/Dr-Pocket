@@ -66,11 +66,24 @@
           </div>
           <ul class="rep-pages" id="rep-pages" hidden></ul>
           <p class="note" id="rep-pages-note" hidden>Report has more pages? Take or upload another one. Up to 8.</p>
-          <p class="note privacy">Cover or crop out your name and ID number first. Your report is sent to Claude, Anthropic's AI, to write the explanation. Dr Pocket does not store it. This explains your report; it is not a diagnosis.</p>
+          <label class="rep-save"><input type="checkbox" id="rep-save" checked> Save it in My reports on this device</label>
+          <p class="note privacy">Cover or crop out your name and ID number first. Your report is sent to Claude, Anthropic's AI, to write the explanation; Dr Pocket's server does not keep it. If saving is on, the report and its explanation are kept only on this device. This explains your report; it is not a diagnosis.</p>
           <button class="btn primary" id="rep-go">Explain it</button>
           <p class="rep-err" id="rep-err" role="alert" hidden></p>
         </div>
         <div id="rep-out" hidden></div>
+      </section>
+
+      <section class="card" id="archive">
+        <div class="row"><h2>My reports</h2><span class="note" id="arc-count"></span></div>
+        <ul class="arc-list" id="arc-list"></ul>
+        <div class="arc-tools" id="arc-tools" hidden>
+          <button class="btn" id="arc-export">Download a backup</button>
+          <label class="btn" for="arc-import">Restore a backup</label>
+          <input type="file" id="arc-import" accept="application/json,.json" hidden>
+          <button class="btn" id="arc-clear">Delete all</button>
+        </div>
+        <p class="note">Saved on this device only. Clearing your browser data removes them, so download a backup to keep a copy or move them to another device.</p>
       </section>
 
       <section class="card">
@@ -99,6 +112,12 @@
         <p class="note">Anatomy from <a href="https://dbarchive.biosciencedbc.jp/en/bodyparts3d/">BodyParts3D</a>, © The Database Center for Life Science, licensed under <a href="https://creativecommons.org/licenses/by-sa/2.1/jp/deed.en">CC Attribution-Share Alike 2.1 Japan</a>. Shapes were simplified for the web. This is for learning only and does not replace advice from a doctor.</p>
       </section>
     </div>
+  </div>
+</div>
+<div class="modal" id="pages-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pages-title">
+  <div class="modal-box">
+    <div class="row"><h2 id="pages-title">Your report</h2><button class="btn" id="pages-close">Close</button></div>
+    <div class="pages-list" id="pages-list"></div>
   </div>
 </div>
 <script type="module" src="/src/main.js"></script>

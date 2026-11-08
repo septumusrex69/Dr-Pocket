@@ -2,6 +2,8 @@
 // and lights up each finding on the 3D body.
 
 import { createFilm, VISUAL_COLOR } from './film.js';
+import { archive, initArchive, showPages } from './archive.js';
+let arc = null;
 
 const $ = (id) => document.getElementById(id);
 let film = null;
@@ -153,6 +155,23 @@ function renderPages() {
 
 export function initReport(body) {
   film = createFilm(body);
+  // My reports: open a saved one without calling the server again, or explain it again
+  arc = initArchive({
+    open: (r) => {
+      $('report').scrollIntoView({ block: 'start', behavior: 'smooth' });
+      render(r.data, body, { id: r.id, history: r.qa || [], pages: r.pages || [], saved: r.created });
+    },
+    reexplain: (r) => {
+      if (film.isOpen) film.close();
+      $('rep-out').hidden = true;
+      $('rep-form').hidden = false;
+      $('rep-text').value = r.text || '';
+      pages = (r.pages || []).map((p) => ({ ...p }));
+      renderPages();
+      $('report').scrollIntoView({ block: 'start', behavior: 'smooth' });
+      $('rep-go').click();
+    },
+  });
   fetch('/models/vocab.json').then((r) => r.json()).then((v) => { vocab = v; }).catch(() => {});
 
   async function addFiles(list) {
@@ -204,7 +223,12 @@ export function initReport(body) {
       }));
       if (!res.ok || data.error) { showError(data.error || 'Something went wrong. Please try again.'); return; }
       if (!data.is_report) { showError('That does not look like a scan report. Paste the written report from your radiologist.'); return; }
-      render(data, body);
+      let id = null;
+      const sent = pages.map((p) => ({ ...p }));
+      if (archive.enabled) {
+        try { id = await archive.save({ data, pages: sent, text }); arc.refresh(); } catch { /* storage not available */ }
+      }
+      render(data, body, { id, history: [], pages: sent, saved: id ? Date.now() : null });
     } catch {
       showError('Could not reach Dr Pocket. Check your connection and try again.');
     } finally {
@@ -214,13 +238,15 @@ export function initReport(body) {
   });
 }
 
-function render(d, body) {
+function render(d, body, { id = null, history = [], pages: shownPages = [], saved = null } = {}) {
   const out = $('rep-out');
   const findings = d.findings || [];
   const walk = WALK[d.walkthrough];
   const scenes = buildScenes(d);
   out.innerHTML = `
     ${d.exam ? `<p class="rep-exam">${esc(d.exam)}</p>` : ''}
+    ${saved ? `<p class="rep-saved">Saved in My reports on ${new Date(saved).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}.</p>` : ''}
+    ${shownPages.length ? `<button class="btn" id="rep-photos">See the photos of your report (${shownPages.length})</button>` : ''}
     <button class="btn primary play-film" id="rep-play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Play the walkthrough</button>
     <p class="note">A spoken tour of your report on the 3D body. Turn your sound on. You can pause or skip between parts.</p>
     ${d.urgent ? '<p class="rep-urgent">Your report flags something that needs attention soon. Please contact your doctor.</p>' : ''}
@@ -270,7 +296,24 @@ function render(d, body) {
   }));
   $('rep-play').addEventListener('click', () => film.open({ scenes, region: d.region }, { start: 0, play: true }));
   // follow-up questions, answered from the report text
-  const history = [];
+  // earlier questions (from My reports) are shown again; new ones are added to the saved report
+  const showQA = (q, ans, ids, fromReport) => {
+    const li = document.createElement('li');
+    li.innerHTML = '<p class="q"></p><p class="a"></p>';
+    li.querySelector('.q').textContent = q;
+    li.querySelector('.a').textContent = ans;
+    if (fromReport === false) li.insertAdjacentHTML('beforeend', '<small class="gen">General information, not from your report.</small>');
+    if (ids?.length) {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.textContent = 'Show on the body';
+      b.onclick = () => { if (film.isOpen) film.close(); body.showParts(ids, q.length > 60 ? `${q.slice(0, 57)}…` : q, 'From your question'); };
+      li.appendChild(b);
+    }
+    $('ask-list').appendChild(li);
+  };
+  history.forEach((h) => showQA(h.q, h.a, idsForNames(h.structures, h.side), h.from_report));
+  $('rep-photos')?.addEventListener('click', () => showPages(shownPages, d.exam));
   $('ask-go').addEventListener('click', async () => {
     const q = $('ask-q').value.trim();
     const err = $('ask-err');
@@ -291,7 +334,8 @@ function render(d, body) {
       });
       const a = await res.json().catch(() => ({ error: 'Something went wrong. Please try again.' }));
       if (!res.ok || a.error) throw new Error(a.error || 'Something went wrong. Please try again.');
-      history.push({ q, a: a.answer });
+      history.push({ q, a: a.answer, structures: a.structures, side: a.side, from_report: a.from_report });
+      if (id) archive.update(id, { qa: history }).then(() => arc.refresh()).catch(() => {});
       const ap = li.querySelector('.a');
       ap.className = 'a';
       ap.textContent = a.answer;

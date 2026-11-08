@@ -191,3 +191,29 @@ details.transcript textarea{font-family:var(--f-mono);font-size:12.5px}
 .ask-list .a.busy{display:flex;align-items:center;gap:8px;color:var(--muted)}
 .ask-list .a.busy i{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:spin .9s linear infinite}
 .ask-list .gen{color:var(--muted);font-size:12px}
+/* My reports */
+.rep-save{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.rep-save input{width:18px;height:18px;accent-color:var(--accent)}
+.arc-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.arc-item{border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:7px}
+.arc-open{all:unset;box-sizing:border-box;display:flex;gap:10px;align-items:center;cursor:pointer;border-radius:7px;width:100%}
+.arc-open:hover .arc-txt b{color:var(--accent)}
+.arc-open:focus-visible{outline:2px solid var(--accent)}
+.arc-open img,.arc-doc{width:42px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--line);flex:none;background:var(--bg)}
+.arc-doc{display:grid;place-items:center;font:600 13px var(--f-mono);color:var(--muted)}
+.arc-txt{display:flex;flex-direction:column;min-width:0}
+.arc-txt b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arc-txt small{color:var(--muted);font-size:12.5px}
+.arc-acts{display:flex;flex-wrap:wrap;gap:6px}
+.arc-acts .btn{font-size:12px;padding:7px 9px}
+.arc-tools{display:flex;flex-wrap:wrap;gap:6px}
+.arc-tools[hidden]{display:none}
+.arc-tools .btn{font-size:12px;padding:7px 9px}
+.rep-saved{color:var(--muted);font-size:12.5px;margin:0}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:16px;z-index:50}
+.modal[hidden]{display:none}
+.modal-box{background:var(--panel);border-radius:14px;padding:14px;max-width:900px;width:100%;max-height:92vh;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.pages-list{display:flex;flex-direction:column;gap:14px}
+.pages-list figure{margin:0;display:flex;flex-direction:column;gap:4px}
+.pages-list img{width:100%;height:auto;border-radius:8px;border:1px solid var(--line)}
+.pages-list figcaption{font-size:12.5px;color:var(--muted)}
