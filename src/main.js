@@ -69,7 +69,11 @@ const PART_COLOR = [
    hidden, drawn female organs and breast tissue are shown, and the skin is reshaped. */
 let sex = 'male';
 try { sex = localStorage.getItem('dr-pocket:sex') === 'female' ? 'female' : 'male'; } catch { /* private mode */ }
-const sexOk = (id) => { const s = INDEX?.parts[id]?.sex; return !s || s === sex; };
+const sexOk = (id) => {
+  const p = INDEX?.parts[id];
+  if (p?.name === 'Pubic hair') return sex === 'male'; // left out for the woman (her groin is drawn)
+  return !p?.sex || p.sex === sex;
+};
 const HILITE = new THREE.Color('#F2B705');
 
 /* ---------- renderer and scene ---------- */
@@ -300,6 +304,7 @@ function applyLook(sys) {
     const { ghost, opacity } = lookOf(sys, m);
     if (mat.userData.seeThrough) { // naturally see-through parts (cornea) stay that way
       mat.opacity = mat.userData.seeThrough * opacity;
+      if (mat.userData.keepDepth) mat.depthWrite = opacity > 0.9;
     } else {
       if (mat.transparent !== ghost) { mat.transparent = ghost; mat.depthWrite = !ghost; mat.needsUpdate = true; }
       mat.opacity = opacity;
@@ -548,17 +553,21 @@ function groinZ(y) {
   }
   return GROIN[GROIN.length - 1][1];
 }
-// smooth curve through (height, value) points
+// smooth curve through (height, value) points: a Catmull-Rom spline, so it flows through each point
+// without levelling off at it (which would make terraces)
 function curve(points, y) {
+  const n = points.length;
   if (y <= points[0][0]) return points[0][1];
-  for (let k = 1; k < points.length; k++) {
-    if (y <= points[k][0]) {
-      const [y0, v0] = points[k - 1], [y1, v1] = points[k];
-      const t = smooth01((y - y0) / (y1 - y0));
-      return v0 + (v1 - v0) * t;
-    }
-  }
-  return points[points.length - 1][1];
+  if (y >= points[n - 1][0]) return points[n - 1][1];
+  let k = 1;
+  while (y > points[k][0]) k++;
+  const [y0, v0] = points[k - 1], [y1, v1] = points[k];
+  const h = y1 - y0, t = (y - y0) / h;
+  const slope = (a, b) => (points[b][1] - points[a][1]) / (points[b][0] - points[a][0]);
+  const m0 = k - 1 > 0 ? slope(k - 2, k) : slope(k - 1, k);
+  const m1 = k + 1 < n ? slope(k - 1, k + 1) : slope(k - 1, k);
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * v0 + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * v1 + (t3 - t2) * h * m1;
 }
 // female proportions: width of the torso relative to the male model at each height (arms move with its edge)
 const WIDTH = [[0.45, 1], [0.76, 1], [0.8, 1.08], [0.86, 1.17], [0.92, 1.13], [0.97, 1.0], [1.02, 0.88], [1.07, 0.9], [1.16, 0.96], [1.26, 0.93], [1.34, 0.91], [1.4, 0.88], [1.44, 0.95], [1.5, 1]];
@@ -762,9 +771,83 @@ function clipSkin(mesh) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vBodyPos;\nuniform float uFemale;')
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        if (uFemale > 0.5 && abs(vBodyPos.x) < 0.021 && vBodyPos.y > 0.6 && vBodyPos.y < 0.745 - 70.0 * vBodyPos.x * vBodyPos.x && vBodyPos.z > 0.02) discard;`);
+        float vw = 0.012 + 0.038 * clamp((vBodyPos.y - 0.733) / 0.072, 0.0, 1.0) - 0.006;
+        if (uFemale > 0.5 && ((abs(vBodyPos.x) < 0.016 && vBodyPos.y > 0.6 && vBodyPos.y < 0.742 - 110.0 * vBodyPos.x * vBodyPos.x && vBodyPos.z > 0.02)
+            || (abs(vBodyPos.x) < vw && vBodyPos.y > 0.734 && vBodyPos.y < 0.8 && vBodyPos.z > 0.07))) discard;`);
   };
   mesh.material.needsUpdate = true;
+}
+/* The woman's groin surface: the front of the thighs at the sides, a soft pubic mound in the middle,
+   curving back between the thighs at the crotch, with a subtle crease. The male skin there is
+   pulled onto it, blending out into the surrounding skin so there is no seam. */
+const GROIN_EDGE = [[0.6, 0.166], [0.78, 0.166], [0.8, 0.173], [0.82, 0.176], [0.84, 0.181]];
+const GROIN_MID = [[0.7, 0.04], [0.725, 0.05], [0.735, 0.075], [0.742, 0.103], [0.75, 0.127], [0.76, 0.145], [0.775, 0.16], [0.79, 0.169], [0.805, 0.176], [0.83, 0.183]];
+function groinSurface(x, y) {
+  const c = Math.cos((Math.PI * Math.min(Math.abs(x), 0.06)) / 0.12) ** 2; // 1 in the middle, 0 at the sides
+  let z = curve(GROIN_EDGE, y) + (curve(GROIN_MID, y) - curve(GROIN_EDGE, y)) * c;
+  z -= 0.002 * Math.exp(-((x / 0.0035) ** 2)) * smooth01((y - 0.737) / 0.004) * (1 - smooth01((y - 0.762) / 0.008));
+  return z;
+}
+/* A drawn surface over the groin: solid in the middle (where the male skin is hidden), its edge
+   overlapping the surrounding skin, following it point by point and fading out, so no seam shows. */
+// half-width of the woman's groin area at each height: a V along the creases where the thighs meet the body
+const vShape = (y) => 0.012 + 0.038 * Math.min(1, Math.max(0, (y - 0.733) / 0.072));
+function buildFemaleGroin(skin) {
+  const pos = skin.geometry.attributes.position;
+  const NX = 41, NY = 37, X0 = -0.068, X1 = 0.068, Y0 = 0.726, Y1 = 0.826;
+  // the skin's front surface at each grid point (front-facing points only; the mesh is coarse here)
+  const sample = new Float32Array(NX * NY).fill(NaN);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const x = X0 + (X1 - X0) * i / (NX - 1), y = Y0 + (Y1 - Y0) * j / (NY - 1);
+    let wsum = 0, zsum = 0;
+    for (let k = 0; k < pos.count; k++) {
+      const dx = pos.getX(k) - x, dy = pos.getY(k) - y, vz = pos.getZ(k);
+      if (vz < 0.08 || Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) continue;
+      const vy = pos.getY(k);
+      if (Math.abs(pos.getX(k)) < vShape(vy) - 0.006 && vy > 0.734 && vy < 0.8) continue; // hidden male area
+      const wk = 1 / (dx * dx + dy * dy + 1e-5);
+      wsum += wk; zsum += wk * vz;
+    }
+    if (wsum) sample[j * NX + i] = zsum / wsum;
+  }
+  const verts = [], cols = [], idx = [];
+  const base = skin.material.color;
+  for (let j = 0; j < NY; j++) {
+    const y = Y0 + (Y1 - Y0) * j / (NY - 1);
+    for (let i = 0; i < NX; i++) {
+      const x = X0 + (X1 - X0) * i / (NX - 1), ax = Math.abs(x);
+      // how much the designed shape takes over from the real skin: 1 in the middle, 0 at the edge
+      const vw = vShape(y);
+      const inner = (1 - smooth01((ax - (vw - 0.006)) / 0.016)) * (1 - smooth01((y - 0.8) / 0.016)) * smooth01((y - Y0) / 0.006);
+      const skinZ = Number.isNaN(sample[j * NX + i]) ? groinSurface(x, y) : sample[j * NX + i];
+      // sits a little above the skin underneath (more in the middle), so none of it shows through
+      const z = skinZ + (groinSurface(x, y) - skinZ) * inner + 0.0015 + 0.002 * inner;
+      verts.push(x, y, z);
+      // fade the edge out over the surrounding skin
+      const alpha = (1 - smooth01((ax - vw) / 0.016)) * (1 - smooth01((y - 0.806) / 0.012));
+      cols.push(base.r, base.g, base.b, alpha);
+    }
+  }
+  for (let j = 0; j < NY - 1; j++) for (let i = 0; i < NX - 1; i++) {
+    const a = j * NX + i, b = a + NX;
+    idx.push(a, a + 1, b, a + 1, b + 1, b);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 4));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const m = skin.material;
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: '#ffffff', vertexColors: true, transparent: true, depthWrite: true, roughness: m.roughness,
+    sheen: m.sheen, sheenColor: m.sheenColor.clone(), sheenRoughness: m.sheenRoughness, side: THREE.DoubleSide,
+    envMapIntensity: 0.8, polygonOffset: true, polygonOffsetFactor: -1,
+  });
+  mat.userData.seeThrough = 1; // keeps its own fading edge when the skin's look changes
+  mat.userData.keepDepth = true; // records its depth (so soft shadows follow its smooth shape) unless see-through
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 3;
+  return mesh;
 }
 function shapeSkin() {
   const byName = (n) => Object.values(partMesh).find((m) => INDEX.parts[m.userData.id]?.name === n);
@@ -789,12 +872,8 @@ function shapeSkin() {
             }
           }
           const ax = Math.abs(x);
-          if (ax < 0.05 && y > 0.6 && y < 0.8 && z > 0.03) { // groin: smooth the male external genitals away
-            const wx = 1 - smooth01((ax - 0.032) / 0.016);
-            const wy = 1 - smooth01((y - 0.78) / 0.02);
-            const w = wx * wy;
-            // tuck what hangs below the crotch back between the thighs (hidden by them), and bring the
-            // front of the groin back to a smooth body outline
+          if (ax < 0.05 && y > 0.6 && y < 0.8 && z > 0.03) { // groin: flatten the male genitals (covered by the drawn groin)
+            const w = (1 - smooth01((ax - 0.032) / 0.016)) * (1 - smooth01((y - 0.78) / 0.02));
             const zs = groinZ(y);
             if (z > zs) z = z + (zs - z) * w;
             if (y < 0.73) x *= 1 - 0.45 * w;
@@ -820,6 +899,7 @@ function shapeSkin() {
   if (skinMesh) {
     const extras = buildNipples(skinMesh);
     if (sex === 'female' && cap) extras.unshift(['Long hair', buildLongHair(cap, skinMesh)]);
+    if (sex === 'female') extras.push(['Vulva', buildFemaleGroin(skinMesh)]);
     setSkinExtras(extras);
   }
   redraw();

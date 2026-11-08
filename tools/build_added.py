@@ -6,6 +6,7 @@ Usage: python3 tools/build_added.py <bodyparts3d download folder> <output folder
 Run after build_models.py (it reads and extends <output folder>/index.json), then pack_models.sh.
 """
 import json
+import re
 import os
 import sys
 
@@ -438,10 +439,15 @@ add('Uterus', 'uterus', pear(cervix, fundus, 0.011, 0.026, flat=0.68))
 SEX['Uterus'] = 'female'
 add('Cervix', 'uterus', sweep(smooth_path([cervix + np.array([0, -0.012, -0.004]), cervix + np.array([0, 0.006, 0.002])], 12), 0.0115, 0.009, ref=FRONT, taper=3))
 SEX['Cervix'] = 'female'
-introitus = np.array([0.0, 0.752, 0.112])
+introitus = np.array([0.0, 0.76, 0.098])  # just inside the body surface
 vag = smooth_path([cervix + np.array([0, -0.01, -0.004]), np.array([0, 0.79, 0.082]), introitus], 30)
 add('Vagina', 'vagina', sweep(vag, 0.012, 0.0055, ref=FRONT, taper=4))
 SEX['Vagina'] = 'female'
+# the female urethra is short: from the bottom of the bladder to just in front of the vagina
+bl_low = bl.vertices[bl.vertices[:, 1] < bl.vertices[:, 1].min() + 0.006].mean(axis=0)
+ure = smooth_path([bl_low + np.array([0, 0.002, 0]), np.array([0, 0.775, 0.104]), np.array([0, 0.764, 0.108])], 20)
+add('Female urethra', 'vagina', sweep(ure, 0.0032, ref=FRONT, taper=3))
+SEX['Female urethra'] = 'female'
 top = fundus + np.array([0, -0.006, -0.004])
 for side in ('Right', 'Left'):
     out = -side_x(side)
@@ -481,8 +487,9 @@ for k, (name, kind, mesh) in enumerate(added):
     if name in SEX:
         index['parts'][pid]['sex'] = SEX[name]
 # the model's own reproductive organs are male; the app hides them for the "woman" option
+MALE_ONLY = re.compile(r'penis|testicular|^urethra$', re.I)
 for v in index['parts'].values():
-    if v.get('sys') == 'genital':
+    if v.get('sys') == 'genital' or (v.get('sys') != 'added' and MALE_ONLY.search(v['name'])):
         v['sex'] = 'male'
 path = os.path.join(OUT, 'added.glb')
 scene.export(path)
