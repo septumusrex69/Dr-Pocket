@@ -771,9 +771,9 @@ function clipSkin(mesh) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vBodyPos;\nuniform float uFemale;')
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        float vw = 0.012 + 0.038 * clamp((vBodyPos.y - 0.733) / 0.072, 0.0, 1.0) - 0.006;
+        float vw = 0.028 + 0.022 * clamp((vBodyPos.y - 0.733) / 0.072, 0.0, 1.0) - 0.006;
         if (uFemale > 0.5 && ((abs(vBodyPos.x) < 0.016 && vBodyPos.y > 0.6 && vBodyPos.y < 0.742 - 110.0 * vBodyPos.x * vBodyPos.x && vBodyPos.z > 0.02)
-            || (abs(vBodyPos.x) < vw && vBodyPos.y > 0.734 && vBodyPos.y < 0.8 && vBodyPos.z > 0.07))) discard;`);
+            || (abs(vBodyPos.x) < vw && vBodyPos.y > 0.729 && vBodyPos.y < 0.8 && vBodyPos.z > 0.05))) discard;`);
   };
   mesh.material.needsUpdate = true;
 }
@@ -784,17 +784,37 @@ const GROIN_EDGE = [[0.6, 0.166], [0.78, 0.166], [0.8, 0.173], [0.82, 0.176], [0
 const GROIN_MID = [[0.7, 0.04], [0.725, 0.05], [0.735, 0.075], [0.742, 0.103], [0.75, 0.127], [0.76, 0.145], [0.775, 0.16], [0.79, 0.169], [0.805, 0.176], [0.83, 0.183]];
 function groinSurface(x, y) {
   const c = Math.cos((Math.PI * Math.min(Math.abs(x), 0.06)) / 0.12) ** 2; // 1 in the middle, 0 at the sides
-  let z = curve(GROIN_EDGE, y) + (curve(GROIN_MID, y) - curve(GROIN_EDGE, y)) * c;
-  z -= 0.002 * Math.exp(-((x / 0.0035) ** 2)) * smooth01((y - 0.737) / 0.004) * (1 - smooth01((y - 0.762) / 0.008));
-  return z;
+  return curve(GROIN_EDGE, y) + (curve(GROIN_MID, y) - curve(GROIN_EDGE, y)) * c + vulva(x, y).dz;
+}
+/* The external female genitalia (vulva), as in a medical atlas, from the front at the top down to
+   the underside between the thighs: the labia majora (two rounded outer folds) either side of a
+   central cleft, the labia minora inside it, the clitoral hood at its top and the vaginal opening
+   lower down. Returns the height change and how much of each tissue colour to use. */
+const VULVA_TOP = 0.768, VULVA_BOTTOM = 0.737;
+function vulva(x, y) {
+  const ax = Math.abs(x);
+  // along the vulva: 0 at the bottom (back), 1 at the top (front), with rounded ends
+  const along = smooth01((y - VULVA_BOTTOM) / 0.005) * (1 - smooth01((y - (VULVA_TOP - 0.004)) / 0.006));
+  const g = (v, c, r) => Math.exp(-(((v - c) / r) ** 2));
+  const majora = 0.0034 * g(ax, 0.0078, 0.0052) * along; // the outer folds
+  const cleft = 0.0042 * g(x, 0, 0.0026) * along; // the groove between them
+  const minora = 0.0017 * g(ax, 0.0024, 0.0013) * along; // the inner folds, inside the groove
+  const hood = 0.0024 * g(x, 0, 0.0042) * g(y, VULVA_TOP - 0.003, 0.0045); // clitoral hood at the top
+  const opening = g(x, 0, 0.0028) * g(y, 0.7445, 0.0035); // vaginal opening, lower down
+  return {
+    dz: majora - cleft + minora + hood - 0.0022 * opening,
+    inner: Math.min(1, g(x, 0, 0.0042) * along * 1.15 + 0.5 * hood / 0.0024), // pinker tissue inside the folds
+    opening,
+  };
 }
 /* A drawn surface over the groin: solid in the middle (where the male skin is hidden), its edge
    overlapping the surrounding skin, following it point by point and fading out, so no seam shows. */
 // half-width of the woman's groin area at each height: a V along the creases where the thighs meet the body
-const vShape = (y) => 0.012 + 0.038 * Math.min(1, Math.max(0, (y - 0.733) / 0.072));
+const vShape = (y) => 0.028 + 0.022 * Math.min(1, Math.max(0, (y - 0.733) / 0.072));
 function buildFemaleGroin(skin) {
   const pos = skin.geometry.attributes.position;
-  const NX = 41, NY = 37, X0 = -0.068, X1 = 0.068, Y0 = 0.726, Y1 = 0.826;
+  const NX = 41, NY = 37, X0 = -0.068, X1 = 0.068, Y0 = 0.726, Y1 = 0.826; // coarse grid for sampling the skin
+  const FX = 137, FY = 101; // fine grid (about 1 mm) for the drawn surface
   // the skin's front surface at each grid point (front-facing points only; the mesh is coarse here)
   const sample = new Float32Array(NX * NY).fill(NaN);
   for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
@@ -804,32 +824,44 @@ function buildFemaleGroin(skin) {
       const dx = pos.getX(k) - x, dy = pos.getY(k) - y, vz = pos.getZ(k);
       if (vz < 0.08 || Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) continue;
       const vy = pos.getY(k);
-      if (Math.abs(pos.getX(k)) < vShape(vy) - 0.006 && vy > 0.734 && vy < 0.8) continue; // hidden male area
+      if (Math.abs(pos.getX(k)) < vShape(vy) - 0.006 && vy > 0.729 && vy < 0.8) continue; // hidden male area
       const wk = 1 / (dx * dx + dy * dy + 1e-5);
       wsum += wk; zsum += wk * vz;
     }
     if (wsum) sample[j * NX + i] = zsum / wsum;
   }
+  // the skin's height anywhere in the area, from the coarse samples
+  const skinAt = (x, y) => {
+    const fi = ((x - X0) / (X1 - X0)) * (NX - 1), fj = ((y - Y0) / (Y1 - Y0)) * (NY - 1);
+    const i0 = Math.min(NX - 2, Math.max(0, Math.floor(fi))), j0 = Math.min(NY - 2, Math.max(0, Math.floor(fj)));
+    const tx = fi - i0, ty = fj - j0;
+    const at = (i, j) => { const v = sample[j * NX + i]; return Number.isNaN(v) ? groinSurface(X0 + (X1 - X0) * i / (NX - 1), Y0 + (Y1 - Y0) * j / (NY - 1)) : v; };
+    return (at(i0, j0) * (1 - tx) + at(i0 + 1, j0) * tx) * (1 - ty) + (at(i0, j0 + 1) * (1 - tx) + at(i0 + 1, j0 + 1) * tx) * ty;
+  };
   const verts = [], cols = [], idx = [];
   const base = skin.material.color;
-  for (let j = 0; j < NY; j++) {
-    const y = Y0 + (Y1 - Y0) * j / (NY - 1);
-    for (let i = 0; i < NX; i++) {
-      const x = X0 + (X1 - X0) * i / (NX - 1), ax = Math.abs(x);
+  const pink = new THREE.Color('#D3998D'), deep = new THREE.Color('#B07870'), c = new THREE.Color();
+  for (let j = 0; j < FY; j++) {
+    const y = Y0 + (Y1 - Y0) * j / (FY - 1);
+    for (let i = 0; i < FX; i++) {
+      const x = X0 + (X1 - X0) * i / (FX - 1), ax = Math.abs(x);
       // how much the designed shape takes over from the real skin: 1 in the middle, 0 at the edge
       const vw = vShape(y);
       const inner = (1 - smooth01((ax - (vw - 0.006)) / 0.016)) * (1 - smooth01((y - 0.8) / 0.016)) * smooth01((y - Y0) / 0.006);
-      const skinZ = Number.isNaN(sample[j * NX + i]) ? groinSurface(x, y) : sample[j * NX + i];
+      const skinZ = skinAt(x, y);
       // sits a little above the skin underneath (more in the middle), so none of it shows through
       const z = skinZ + (groinSurface(x, y) - skinZ) * inner + 0.0015 + 0.002 * inner;
       verts.push(x, y, z);
+      // colour: skin, pinker inside the folds, darker at the vaginal opening
+      const v = vulva(x, y);
+      c.copy(base).lerp(pink, 0.75 * v.inner * inner).lerp(deep, 0.6 * Math.min(1, v.opening) * inner);
       // fade the edge out over the surrounding skin
       const alpha = (1 - smooth01((ax - vw) / 0.016)) * (1 - smooth01((y - 0.806) / 0.012));
-      cols.push(base.r, base.g, base.b, alpha);
+      cols.push(c.r, c.g, c.b, alpha);
     }
   }
-  for (let j = 0; j < NY - 1; j++) for (let i = 0; i < NX - 1; i++) {
-    const a = j * NX + i, b = a + NX;
+  for (let j = 0; j < FY - 1; j++) for (let i = 0; i < FX - 1; i++) {
+    const a = j * FX + i, b = a + FX;
     idx.push(a, a + 1, b, a + 1, b + 1, b);
   }
   const geo = new THREE.BufferGeometry();
