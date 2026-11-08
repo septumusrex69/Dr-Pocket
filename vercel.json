@@ -1,6 +1,7 @@
 {
   "functions": {
-    "api/explain.js": { "maxDuration": 120 }
+    "api/explain.js": { "maxDuration": 300 },
+    "api/ask.js": { "maxDuration": 120 }
   },
   "headers": [
     {

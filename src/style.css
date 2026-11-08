@@ -169,3 +169,25 @@ textarea{font:14px/1.45 var(--f-body);padding:10px 12px;border-radius:9px;border
 .rep-pages em{font-style:normal;font-size:12px;color:var(--muted)}
 .rep-pages button{all:unset;position:absolute;top:-7px;right:-7px;width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--panel);display:grid;place-items:center;font-size:15px;line-height:1;cursor:pointer}
 .rep-pages button:focus-visible{outline:2px solid var(--accent)}
+/* report: what was read, quotes, background and questions */
+.finding-card{display:flex;flex-direction:column;gap:6px;list-style:none}
+.quote{margin:0 0 0 4px;padding:6px 10px;border-left:3px solid var(--line);font-size:13.5px;color:var(--ink);font-style:italic}
+.quote small{display:block;font-style:normal;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+details.bg{margin-left:4px;font-size:14px}
+details.bg summary,details.transcript summary{cursor:pointer;color:var(--accent);font-weight:500}
+details.bg p{margin:4px 0 0;color:var(--muted)}
+details.transcript{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+details.transcript[open]{display:flex}
+details.transcript textarea{font-family:var(--f-mono);font-size:12.5px}
+.rep-unclear{background:#FBEACF;color:#6E3A05;border-radius:9px;padding:9px 11px;font-size:14px;display:flex;flex-direction:column;gap:4px}
+.rep-unclear ul{margin:0;padding-left:18px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .rep-unclear{background:#382811;color:#F0C890}}
+.ask{display:flex;flex-direction:column;gap:8px}
+.ask .btn{align-self:flex-start}
+.ask-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.ask-list li{display:flex;flex-direction:column;gap:5px;border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+.ask-list .q{margin:0;font-weight:500}
+.ask-list .a{margin:0;font-size:14.5px;white-space:pre-line}
+.ask-list .a.busy{display:flex;align-items:center;gap:8px;color:var(--muted)}
+.ask-list .a.busy i{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:spin .9s linear infinite}
+.ask-list .gen{color:var(--muted);font-size:12px}

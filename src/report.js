@@ -44,21 +44,32 @@ async function readImage(f) {
   const img = await decode(f);
   const w = img.width || img.naturalWidth, h = img.height || img.naturalHeight;
   if (!w || !h) throw new Error('unreadable');
-  const encode = (maxSide, q) => {
+  const encode = (maxSide, q, gray) => {
     const scale = Math.min(1, maxSide / Math.max(w, h));
     const c = document.createElement('canvas');
     c.width = Math.round(w * scale);
     c.height = Math.round(h * scale);
-    const g = c.getContext('2d');
+    const g = c.getContext('2d', { willReadFrequently: gray });
     g.fillStyle = '#fff';
     g.fillRect(0, 0, c.width, c.height);
     g.drawImage(img, 0, 0, c.width, c.height);
+    if (gray) {
+      // black and white with a little extra contrast: print reads more clearly and the file is smaller
+      const px = g.getImageData(0, 0, c.width, c.height);
+      const d = px.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const v = Math.max(0, Math.min(255, (y - 128) * 1.18 + 136));
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+      g.putImageData(px, 0, 0);
+    }
     return c.toDataURL('image/jpeg', q).split(',')[1];
   };
-  let data = encode(1800, 0.82);
-  if (data.length > 900_000) data = encode(1500, 0.75);
-  if (data.length > 900_000) data = encode(1200, 0.7);
-  const thumb = `data:image/jpeg;base64,${encode(160, 0.6)}`;
+  let data = encode(2400, 0.85, true);
+  if (data.length > 1_300_000) data = encode(2000, 0.8, true);
+  if (data.length > 1_300_000) data = encode(1600, 0.75, true);
+  const thumb = `data:image/jpeg;base64,${encode(160, 0.6, false)}`;
   img.close?.();
   return { data, media_type: 'image/jpeg', thumb };
 }
@@ -201,20 +212,36 @@ function render(d, body) {
     <button class="btn primary play-film" id="rep-play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Play the walkthrough</button>
     <p class="note">A spoken tour of your report on the 3D body. Turn your sound on. You can pause or skip between parts.</p>
     ${d.urgent ? '<p class="rep-urgent">Your report flags something that needs attention soon. Please contact your doctor.</p>' : ''}
+    ${(d.unclear_parts || []).length ? `<div class="rep-unclear"><b>Some of your report could not be read clearly</b><ul>${d.unclear_parts.map((u) => `<li>${esc(u)}</li>`).join('')}</ul><span>Take a sharper photo of that part, or type it in under “What we read”, then explain again.</span></div>` : ''}
     <p class="rep-sum">${esc(d.summary)}</p>
     ${findings.length ? `<p class="rep-h">What the report found</p>
     <p class="note">Tap a finding to see it on the body.</p>
     <ul class="rep-findings">${findings.map((f, i) => `
-      <li><button class="finding" data-i="${i}" aria-pressed="false">
+      <li class="finding-card"><button class="finding" data-i="${i}" aria-pressed="false">
         <b>${esc(f.title)}<em class="tag ${esc(f.kind)}">${LABEL[f.kind] || ''}</em></b>
         ${f.marker_label ? `<small style="color:${VISUAL_COLOR[f.visual] || 'inherit'}">● ${esc(f.marker_label)}</small>` : ''}
         <span>${esc(f.plain)}</span>
         ${idsFor(f).length ? (f.approximate ? '<small>The exact part is too small for the 3D model, so the area around it is shown.</small>' : '') : '<small>Not shown on the model.</small>'}
-      </button></li>`).join('')}</ul>` : ''}
+      </button>
+      ${f.report_quote ? `<blockquote class="quote"><small>Your report says</small>${esc(f.report_quote)}</blockquote>` : ''}
+      ${f.background ? `<details class="bg"><summary>More background</summary><p>${esc(f.background)}</p></details>` : ''}
+      </li>`).join('')}</ul>` : ''}
     ${(d.glossary || []).length ? `<p class="rep-h">Words in your report</p>
     <dl class="rep-gloss">${d.glossary.map((g) => `<dt>${esc(g.term)}</dt><dd>${esc(g.meaning)}</dd>`).join('')}</dl>` : ''}
     ${(d.questions || []).length ? `<p class="rep-h">Questions to ask your doctor</p>
     <ol class="rep-q">${d.questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ol>` : ''}
+    <section class="ask" aria-label="Ask about your report">
+      <p class="rep-h">Ask about your report</p>
+      <ul class="ask-list" id="ask-list"></ul>
+      <textarea id="ask-q" rows="2" placeholder="For example: what does “partial-thickness” mean?" aria-label="Your question"></textarea>
+      <button class="btn primary" id="ask-go">Ask</button>
+      <p class="rep-err" id="ask-err" role="alert" hidden></p>
+    </section>
+    ${d.transcript ? `<details class="transcript"><summary>What we read from your report</summary>
+      <p class="note">Check this against your report. If something was read wrong, fix it here and explain again.</p>
+      <textarea id="rep-transcript" rows="10" aria-label="Report text as read">${esc(d.transcript)}</textarea>
+      <button class="btn" id="rep-reexplain">Explain again with this text</button>
+    </details>` : ''}
     <div class="rep-actions">
       ${walk ? `<a class="btn primary" href="/shoulder/?case=${walk[0]}">${esc(walk[1])}</a>` : ''}
       <button class="btn" id="rep-again">Explain another report</button>
@@ -230,6 +257,60 @@ function render(d, body) {
     film.open({ scenes, region: d.region }, { start: Number(b.dataset.i) + 1, play: false });
   }));
   $('rep-play').addEventListener('click', () => film.open({ scenes, region: d.region }, { start: 0, play: true }));
+  // follow-up questions, answered from the report text
+  const history = [];
+  $('ask-go').addEventListener('click', async () => {
+    const q = $('ask-q').value.trim();
+    const err = $('ask-err');
+    err.hidden = true;
+    if (!q) return;
+    const go = $('ask-go');
+    go.disabled = true;
+    const li = document.createElement('li');
+    li.innerHTML = `<p class="q"></p><p class="a busy"><i></i>Thinking…</p>`;
+    li.querySelector('.q').textContent = q;
+    $('ask-list').appendChild(li);
+    $('ask-q').value = '';
+    try {
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: $('rep-transcript')?.value || d.transcript || d.summary, question: q, history }),
+      });
+      const a = await res.json().catch(() => ({ error: 'Something went wrong. Please try again.' }));
+      if (!res.ok || a.error) throw new Error(a.error || 'Something went wrong. Please try again.');
+      history.push({ q, a: a.answer });
+      const ap = li.querySelector('.a');
+      ap.className = 'a';
+      ap.textContent = a.answer;
+      const ids = idsForNames(a.structures, a.side);
+      if (!a.from_report) li.insertAdjacentHTML('beforeend', '<small class="gen">General information, not from your report.</small>');
+      if (ids.length) {
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = 'Show on the body';
+        b.onclick = () => { if (film.isOpen) film.close(); body.showParts(ids, q.length > 60 ? `${q.slice(0, 57)}…` : q, 'From your question'); };
+        li.appendChild(b);
+      }
+    } catch (e) {
+      li.remove();
+      $('ask-q').value = q;
+      err.textContent = e.message;
+      err.hidden = false;
+    } finally {
+      go.disabled = false;
+    }
+  });
+  $('ask-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('ask-go').click(); } });
+
+  // fix what was read and explain again
+  $('rep-reexplain')?.addEventListener('click', () => {
+    const fixed = $('rep-transcript').value.trim();
+    $('rep-again').click();
+    $('rep-text').value = fixed;
+    $('rep-go').click();
+  });
+
   $('rep-again').addEventListener('click', () => {
     if (film.isOpen) film.close();
     out.hidden = true;
