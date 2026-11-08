@@ -5,7 +5,8 @@ import { STRUCTURES } from './_vocab.js';
 
 const MODEL = 'claude-opus-5-5';
 const MAX_TEXT = 40_000; // characters of pasted text
-const MAX_FILE = 3_500_000; // base64 characters (Vercel caps a request body at 4.5 MB)
+const MAX_FILES_TOTAL = 4_000_000; // base64 characters across all pages (Vercel caps a request body at 4.5 MB)
+const MAX_PAGES = 8;
 const FILE_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const REGIONS = ['body', 'head', 'chest', 'belly', 'pelvis', 'shoulder', 'arm', 'hand', 'knee', 'leg', 'foot', 'back'];
 const VISUALS = ['tear', 'partial_tear', 'swelling', 'fluid', 'wear', 'bone_change', 'narrowing', 'bulge', 'growth', 'normal', 'other'];
@@ -110,16 +111,22 @@ export default async function handler(req, res) {
   if (!allowed(ip)) return res.status(429).json({ error: 'You have explained a lot of reports this hour. Please try again later.' });
 
   const { text, file } = req.body || {};
+  // pages: photos and/or PDFs of one report, in order (older pages sent a single "file")
+  const files = Array.isArray(req.body?.files) ? req.body.files : file ? [file] : [];
   const content = [];
-  if (file) {
-    if (typeof file.data !== 'string' || !FILE_TYPES.includes(file.media_type)) {
-      return res.status(400).json({ error: 'Please upload a PDF or a photo (JPG, PNG or WebP).' });
+  if (files.length > MAX_PAGES) return res.status(413).json({ error: `Please send at most ${MAX_PAGES} pages.` });
+  let total = 0;
+  for (const f of files) {
+    if (!f || typeof f.data !== 'string' || !FILE_TYPES.includes(f.media_type)) {
+      return res.status(400).json({ error: 'Please upload PDFs or photos (JPG, PNG or WebP).' });
     }
-    if (file.data.length > MAX_FILE) return res.status(413).json({ error: 'That file is too big. Try a smaller photo or a shorter PDF.' });
-    content.push(file.media_type === 'application/pdf'
-      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.data } }
-      : { type: 'image', source: { type: 'base64', media_type: file.media_type, data: file.data } });
+    total += f.data.length;
   }
+  if (total > MAX_FILES_TOTAL) return res.status(413).json({ error: 'Those pages are too big together. Try fewer photos or a shorter PDF.' });
+  if (files.length > 1) content.push({ type: 'text', text: `The report is in the following ${files.length} pages, in order.` });
+  files.forEach((f) => content.push(f.media_type === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: f.data } }
+    : { type: 'image', source: { type: 'base64', media_type: f.media_type, data: f.data } }));
   if (typeof text === 'string' && text.trim()) {
     if (text.length > MAX_TEXT) return res.status(413).json({ error: 'That report is too long. Paste just the findings and conclusion.' });
     content.push({ type: 'text', text: `<report>\n${text.trim()}\n</report>` });
@@ -127,6 +134,9 @@ export default async function handler(req, res) {
   if (!content.length) return res.status(400).json({ error: 'Paste your report or upload a photo or PDF of it.' });
   content.push({ type: 'text', text: 'Explain this report for me.' });
 
+  // one line per request for troubleshooting - sizes and outcome only, never report content
+  const started = Date.now();
+  const note = (outcome) => console.log(`explain: ${files.length} page(s), ${Math.round(total / 1024)} KB, text ${text ? 'yes' : 'no'} -> ${outcome} in ${Math.round((Date.now() - started) / 1000)}s`);
   try {
     const response = await client.beta.messages.create({
       model: MODEL,
@@ -138,6 +148,7 @@ export default async function handler(req, res) {
       messages: [{ role: 'user', content }],
     });
 
+    note(response.stop_reason);
     if (response.stop_reason === 'refusal') {
       return res.status(422).json({ error: 'This report could not be explained. Please ask your doctor to go through it with you.' });
     }
@@ -155,11 +166,11 @@ export default async function handler(req, res) {
     }));
     return res.status(200).json(data);
   } catch (err) {
+    note(`error ${err?.status || ''} ${err?.name || ''}`);
     if (err instanceof Anthropic.RateLimitError) return res.status(429).json({ error: 'The explainer is busy right now. Try again in a minute.' });
     if (err instanceof Anthropic.AuthenticationError) return res.status(503).json({ error: 'The explainer is not set up correctly (API key).' });
     if (err instanceof Anthropic.BadRequestError) return res.status(400).json({ error: 'That file could not be read. Try a clearer photo or paste the text.' });
     if (err instanceof SyntaxError) return res.status(502).json({ error: 'Something went wrong reading the explanation. Please try again.' });
-    console.error('explain failed:', err?.status || '', err?.name || 'error'); // no report content in logs
     return res.status(502).json({ error: 'Something went wrong. Please try again.' });
   }
 }

@@ -6,6 +6,8 @@ import { createFilm, VISUAL_COLOR } from './film.js';
 const $ = (id) => document.getElementById(id);
 let film = null;
 const MAX_PDF_BYTES = 2_500_000;
+const MAX_PAGES = 8;
+const MAX_TOTAL = 3_900_000; // base64 characters, under the server's 4.5 MB request limit
 const LABEL = { normal: 'Normal', minor: 'Minor', notable: 'Worth noting', important: 'Important' };
 const WALK = {
   'shoulder-healthy': ['healthy', 'How a healthy shoulder works'],
@@ -17,27 +19,48 @@ const WALK = {
 };
 
 let vocab = null;
-let file = null; // { data, media_type, name }
+let pages = []; // [{ data, media_type, name, thumb }] - photos and PDFs of one report, in order
 
-/* Shrink photos so they upload quickly and stay under the size limit. */
-async function readImage(f) {
+/* Open a photo, turned the right way up (phone photos store their rotation separately). */
+async function decode(f) {
+  if ('createImageBitmap' in window) {
+    try { return await createImageBitmap(f, { imageOrientation: 'from-image' }); } catch { /* fall back below */ }
+  }
   const url = URL.createObjectURL(f);
   try {
-    const img = await new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       const i = new Image();
       i.onload = () => resolve(i);
       i.onerror = () => reject(new Error('unreadable'));
       i.src = url;
     });
-    const scale = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
-    const c = document.createElement('canvas');
-    c.width = Math.round(img.naturalWidth * scale);
-    c.height = Math.round(img.naturalHeight * scale);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    return { data: c.toDataURL('image/jpeg', 0.85).split(',')[1], media_type: 'image/jpeg' };
   } finally {
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+}
+/* Shrink a photo so several pages upload quickly and stay under the size limit,
+   while keeping small print readable. */
+async function readImage(f) {
+  const img = await decode(f);
+  const w = img.width || img.naturalWidth, h = img.height || img.naturalHeight;
+  if (!w || !h) throw new Error('unreadable');
+  const encode = (maxSide, q) => {
+    const scale = Math.min(1, maxSide / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * scale);
+    c.height = Math.round(h * scale);
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', q).split(',')[1];
+  };
+  let data = encode(1800, 0.82);
+  if (data.length > 900_000) data = encode(1500, 0.75);
+  if (data.length > 900_000) data = encode(1200, 0.7);
+  const thumb = `data:image/jpeg;base64,${encode(160, 0.6)}`;
+  img.close?.();
+  return { data, media_type: 'image/jpeg', thumb };
 }
 function readPdf(f) {
   return new Promise((resolve, reject) => {
@@ -91,34 +114,56 @@ function buildScenes(d) {
   return scenes;
 }
 
+/* Thumbnails of the pages added so far, each with a remove button. */
+function renderPages() {
+  const ul = $('rep-pages');
+  ul.innerHTML = '';
+  pages.forEach((p, k) => {
+    const li = document.createElement('li');
+    li.innerHTML = `${p.thumb ? `<img src="${p.thumb}" alt="">` : '<span class="pdf">PDF</span>'}<em>Page ${k + 1}</em><button aria-label="Remove page ${k + 1}">×</button>`;
+    li.querySelector('button').onclick = () => { pages.splice(k, 1); renderPages(); };
+    ul.appendChild(li);
+  });
+  ul.hidden = !pages.length;
+  $('rep-pages-note').hidden = !pages.length || pages.length >= MAX_PAGES;
+}
+
 export function initReport(body) {
   film = createFilm(body);
   fetch('/models/vocab.json').then((r) => r.json()).then((v) => { vocab = v; }).catch(() => {});
 
-  $('rep-file').addEventListener('change', async (e) => {
-    const f = e.target.files[0];
-    e.target.value = '';
+  async function addFiles(list) {
     showError('');
-    file = null;
-    $('rep-file-name').textContent = '';
-    if (!f) return;
-    try {
-      if (f.type === 'application/pdf') {
-        if (f.size > MAX_PDF_BYTES) { showError('That PDF is too big. Upload a photo of the report page instead.'); return; }
-        file = await readPdf(f);
-      } else {
-        file = await readImage(f);
+    const files = [...list];
+    for (const f of files) {
+      if (pages.length >= MAX_PAGES) { showError(`You can add up to ${MAX_PAGES} pages.`); break; }
+      try {
+        const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+        if (isPdf && f.size > MAX_PDF_BYTES) { showError(`${f.name} is too big. Take photos of its pages instead.`); continue; }
+        const page = isPdf ? await readPdf(f) : await readImage(f);
+        page.name = f.name || 'Photo';
+        if (pages.reduce((n, p) => n + p.data.length, 0) + page.data.length > MAX_TOTAL) {
+          showError('That is too much to send at once. Remove a page or use fewer photos.');
+          break;
+        }
+        pages.push(page);
+      } catch {
+        showError(/heic|heif/i.test(f.type + f.name)
+          ? 'That photo is in a format this browser cannot open (HEIC). On iPhone, go to Settings, Camera, Formats and choose Most Compatible, or take the photo with the Take a photo button.'
+          : `${f.name || 'That photo'} could not be opened. Try another photo, or paste the text.`);
       }
-      $('rep-file-name').textContent = f.name;
-    } catch {
-      showError('That file could not be opened. Try a JPG or PNG photo, or paste the text.');
     }
-  });
+    renderPages();
+  }
+  ['rep-file', 'rep-cam'].forEach((id) => $(id).addEventListener('change', (e) => {
+    const list = e.target.files;
+    addFiles(list).finally(() => { e.target.value = ''; });
+  }));
 
   $('rep-go').addEventListener('click', async () => {
     const text = $('rep-text').value.trim();
     showError('');
-    if (!text && !file) { showError('Paste your report or upload a photo or PDF of it first.'); return; }
+    if (!text && !pages.length) { showError('Paste your report, or take or upload a photo of it first.'); return; }
     const go = $('rep-go');
     go.disabled = true;
     const busy = document.createElement('div');
@@ -129,9 +174,11 @@ export function initReport(body) {
       const res = await fetch('/api/explain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, file: file && { data: file.data, media_type: file.media_type } }),
+        body: JSON.stringify({ text, files: pages.map((p) => ({ data: p.data, media_type: p.media_type })) }),
       });
-      const data = await res.json().catch(() => ({ error: 'Something went wrong. Please try again.' }));
+      const data = await res.json().catch(() => ({
+        error: res.status === 413 ? 'Those photos are too big to send together. Remove a page and try again.' : 'Something went wrong. Please try again.',
+      }));
       if (!res.ok || data.error) { showError(data.error || 'Something went wrong. Please try again.'); return; }
       if (!data.is_report) { showError('That does not look like a scan report. Paste the written report from your radiologist.'); return; }
       render(data, body);
@@ -189,8 +236,8 @@ function render(d, body) {
     out.innerHTML = '';
     $('rep-form').hidden = false;
     $('rep-text').value = '';
-    $('rep-file-name').textContent = '';
-    file = null;
+    pages = [];
+    renderPages();
     body.clear();
   });
 

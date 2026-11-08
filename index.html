@@ -55,13 +55,16 @@
       <section class="card report" id="report">
         <h2>Explain my scan report</h2>
         <div id="rep-form">
-          <p class="note">Paste the written report from your MRI, CT, X-ray or ultrasound, or upload a photo or PDF of it. You get it in plain words, with each finding shown on the body.</p>
+          <p class="note">Paste the written report from your MRI, CT, X-ray or ultrasound, or take photos of its pages. You get it in plain words, with each finding shown on the body.</p>
           <textarea id="rep-text" rows="5" placeholder="Paste the report here…" aria-label="Report text"></textarea>
           <div class="rep-file">
-            <label class="btn" for="rep-file">Upload photo or PDF</label>
-            <input type="file" id="rep-file" accept="image/jpeg,image/png,image/webp,image/heic,application/pdf" hidden>
-            <span class="note" id="rep-file-name"></span>
+            <label class="btn" for="rep-cam">Take a photo</label>
+            <input type="file" id="rep-cam" accept="image/*" capture="environment" hidden>
+            <label class="btn" for="rep-file">Upload photos or PDF</label>
+            <input type="file" id="rep-file" accept="image/*,application/pdf" multiple hidden>
           </div>
+          <ul class="rep-pages" id="rep-pages" hidden></ul>
+          <p class="note" id="rep-pages-note" hidden>Report has more pages? Take or upload another one. Up to 8.</p>
           <p class="note privacy">Cover or crop out your name and ID number first. Your report is sent to Claude, Anthropic's AI, to write the explanation. Dr Pocket does not store it. This explains your report; it is not a diagnosis.</p>
           <button class="btn primary" id="rep-go">Explain it</button>
           <p class="rep-err" id="rep-err" role="alert" hidden></p>

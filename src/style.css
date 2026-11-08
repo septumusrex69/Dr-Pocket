@@ -160,3 +160,12 @@ textarea{font:14px/1.45 var(--f-body);padding:10px 12px;border-radius:9px;border
 }
 /* phones: show the short controls hint the header hides */
 @media (max-width:520px){header p{display:block;font-size:11.5px;line-height:1.3}}
+/* report pages added as photos or PDFs */
+.rep-pages{list-style:none;margin:0;padding:0;display:flex;gap:8px;flex-wrap:wrap}
+.rep-pages[hidden]{display:none}
+.rep-pages li{position:relative;width:72px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.rep-pages img,.rep-pages .pdf{width:72px;height:92px;object-fit:cover;border-radius:7px;border:1px solid var(--line);background:var(--bg)}
+.rep-pages .pdf{display:grid;place-items:center;font:600 13px var(--f-mono);color:var(--muted)}
+.rep-pages em{font-style:normal;font-size:12px;color:var(--muted)}
+.rep-pages button{all:unset;position:absolute;top:-7px;right:-7px;width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--panel);display:grid;place-items:center;font-size:15px;line-height:1;cursor:pointer}
+.rep-pages button:focus-visible{outline:2px solid var(--accent)}
