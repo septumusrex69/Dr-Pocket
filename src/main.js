@@ -37,6 +37,39 @@ const LOOK = {
 };
 const DEFAULT_ON = ['skeleton', 'muscles', 'added'];
 const DEFAULT_GHOST = ['skin'];
+
+/* One-tap views: which systems show, and which are see-through around them. */
+const VIEWS = {
+  skin: { label: 'Skin', on: ['skin', 'senses'], ghost: [] },
+  muscles: { label: 'Muscles', on: ['skeleton', 'muscles', 'added', 'skin'], ghost: ['skin'] },
+  organs: { label: 'Organs', on: ['heart', 'lungs', 'gut', 'urinary', 'glands', 'genital', 'added', 'skeleton', 'skin'], ghost: ['skeleton', 'skin'] },
+  skeleton: { label: 'Skeleton', on: ['skeleton', 'cartilage', 'joints', 'added'], ghost: [] },
+  nerves: { label: 'Nerves', on: ['nerves', 'senses', 'added', 'skeleton'], ghost: ['skeleton'] },
+  vessels: { label: 'Vessels', on: ['heart', 'arteries', 'veins', 'skeleton'], ghost: ['skeleton'] },
+};
+let currentView = 'muscles';
+const PART_COLOR = [
+  [/sclera/i, '#F3EFE6', { roughness: 0.3, clearcoat: 0.6 }],
+  [/cornea/i, '#E4EEF2', { roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.18, depthWrite: false }],
+  [/\biris\b/i, '#5B3B22'],
+  [/\blens\b/i, '#E9E3C7', { roughness: 0.1 }],
+  [/choroid|retina/i, '#7A3A33'],
+  [/vitreous|anterior chamber/i, '#E9EEF0', { transparent: true, opacity: 0.5 }],
+  [/eyelid|tarsal plate/i, '#D99A84'],
+  [/rectus$|oblique$|levator palpebrae/i, '#B9473D'],
+  [/lacrimal (gland|sac|canaliculus|lake)|nasolacrimal/i, '#E2A49B'],
+  [/external ear|auricle/i, '#DFA98C'],
+  [/tooth|teeth|incisor|canine|molar/i, '#F4EFE2', { roughness: 0.25, clearcoat: 0.6 }],
+  [/tongue/i, '#C86A6E'],
+  [/^lip$|\blip\b/i, '#C7716B'],
+  [/hair of head|eyebrow|pubic hair/i, '#3B2A20', { roughness: 0.7 }],
+];
+
+/* Man or woman. The anatomy data is a male body; for "woman" the male reproductive organs are
+   hidden, drawn female organs and breast tissue are shown, and the skin is reshaped. */
+let sex = 'male';
+try { sex = localStorage.getItem('dr-pocket:sex') === 'female' ? 'female' : 'male'; } catch { /* private mode */ }
+const sexOk = (id) => { const s = INDEX?.parts[id]?.sex; return !s || s === sex; };
 const HILITE = new THREE.Color('#F2B705');
 
 /* ---------- renderer and scene ---------- */
@@ -224,6 +257,15 @@ function makeMaterial(sysKey, id) {
       roughness: 0.38, ...(phone ? {} : { clearcoat: 0.45, clearcoatRoughness: 0.25 }),
     });
   }
+  // parts of the eye, ear and mouth get their real colours rather than their system's colour
+  const nm = INDEX?.parts[id]?.name || '';
+  const named = PART_COLOR.find(([rx]) => rx.test(nm));
+  if (named) {
+    const [, col, extra] = named;
+    const mat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(col), metalness: 0, roughness: 0.4, envMapIntensity: 0.8, side: THREE.DoubleSide, ...(extra || {}) });
+    if (extra?.transparent) mat.userData.seeThrough = extra.opacity ?? 1;
+    return mat;
+  }
   const c = new THREE.Color(COLOR[sysKey] || '#BBBBBB');
   // small shade changes between neighbouring parts so they read as separate pieces
   const jitter = sysKey === 'skin' ? 0 : (hash(id) - 0.5) * (sysKey === 'muscles' ? 0.14 : 0.07);
@@ -256,10 +298,14 @@ function applyLook(sys) {
   sys.meshes.forEach((m) => {
     const mat = m.material;
     const { ghost, opacity } = lookOf(sys, m);
-    if (mat.transparent !== ghost) { mat.transparent = ghost; mat.depthWrite = !ghost; mat.needsUpdate = true; }
-    mat.opacity = opacity;
+    if (mat.userData.seeThrough) { // naturally see-through parts (cornea) stay that way
+      mat.opacity = mat.userData.seeThrough * opacity;
+    } else {
+      if (mat.transparent !== ghost) { mat.transparent = ghost; mat.depthWrite = !ghost; mat.needsUpdate = true; }
+      mat.opacity = opacity;
+    }
     m.renderOrder = ghost ? 2 : 0;
-    m.visible = sys.on && !hiddenParts.has(m.userData.id);
+    m.visible = sys.on && !hiddenParts.has(m.userData.id) && sexOk(m.userData.id);
   });
 }
 function setFocusFade(v) {
@@ -304,6 +350,7 @@ function loadSystem(sys) {
         group.add(m);
       });
       sys.group = group;
+      if (sys.key === 'skin') shapeSkin();
       scene.add(group);
       applyLook(sys);
       paintSelection();
@@ -488,15 +535,87 @@ async function goTo(sel, { noFrame = false, fade = 1 } = {}) {
   renderSystems();
 }
 
+/* ---------- the skin for the "woman" option ----------
+   The male skin is reshaped: a female chest over the drawn breast tissue, and the male external
+   genitals smoothed back into the body outline. Approximate, like the drawn organs. */
+const smooth01 = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
+// how far forward the body surface comes at each height, from between the thighs up to the pubic mound
+const GROIN = [[0.60, 0.035], [0.70, 0.04], [0.72, 0.07], [0.74, 0.115], [0.76, 0.152], [0.78, 0.174], [0.80, 0.186]];
+function groinZ(y) {
+  if (y <= GROIN[0][0]) return GROIN[0][1];
+  for (let k = 1; k < GROIN.length; k++) {
+    if (y <= GROIN[k][0]) { const [y0, z0] = GROIN[k - 1], [y1, z1] = GROIN[k]; return z0 + (z1 - z0) * (y - y0) / (y1 - y0); }
+  }
+  return GROIN[GROIN.length - 1][1];
+}
+function shapeSkin() {
+  const skin = Object.values(partMesh).find((m) => INDEX.parts[m.userData.id]?.name === 'Skin');
+  if (!skin) return;
+  const pos = skin.geometry.attributes.position;
+  if (!skin.userData.orig) skin.userData.orig = pos.array.slice();
+  const o = skin.userData.orig, a = pos.array;
+  a.set(o);
+  if (sex === 'female') {
+    for (let i = 0; i < a.length; i += 3) {
+      let x = o[i], y = o[i + 1], z = o[i + 2];
+      if (z > 0.12) { // front of the chest: breasts
+        for (const sgn of [-1, 1]) {
+          const dx = x - sgn * 0.095, dy = y - 1.198;
+          const sy = dy < 0 ? 0.06 : 0.052;
+          // a rounder, softer shape: flatter top than a plain bell curve
+          const g = Math.exp(-(dx * dx) / (2 * 0.056 * 0.056) - (dy * dy) / (2 * sy * sy));
+          const w = Math.min(1, g * 1.25) ** 1.6;
+          if (w > 0.002) { z += 0.042 * w; x += sgn * 0.007 * w; y -= 0.014 * w; }
+        }
+      }
+      const ax = Math.abs(x);
+      if (ax < 0.05 && y > 0.6 && y < 0.8 && z > 0.03) { // groin: smooth the male external genitals away
+        const wx = 1 - smooth01((ax - 0.032) / 0.016);
+        const wy = 1 - smooth01((y - 0.78) / 0.02);
+        const w = wx * wy;
+        // tuck what hangs below the crotch back between the thighs (hidden by them), and bring the
+        // front of the groin back to a smooth body outline
+        const zs = groinZ(y);
+        if (z > zs) z = z + (zs - z) * w;
+        if (y < 0.73) x *= 1 - 0.45 * w;
+      }
+      a[i] = x; a[i + 1] = y; a[i + 2] = z;
+    }
+  }
+  pos.needsUpdate = true;
+  skin.geometry.computeVertexNormals();
+  skin.geometry.computeBoundingSphere();
+  redraw();
+}
+function setSex(next) {
+  if (next !== 'male' && next !== 'female') return;
+  sex = next;
+  try { localStorage.setItem('dr-pocket:sex', sex); } catch { /* private mode */ }
+  document.querySelectorAll('#sex button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sex === sex));
+  if (selected && [...selected.ids].some((id) => !sexOk(id))) select(null);
+  Object.values(systems).forEach((s) => s.group && applyLook(s));
+  shapeSkin();
+}
+
+/* ---------- one-tap views ---------- */
+async function setView(key) {
+  const v = VIEWS[key];
+  if (!v) return;
+  currentView = key;
+  document.querySelectorAll('#views-layers button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === key));
+  select(null);
+  hiddenParts.clear();
+  Object.values(systems).forEach((s) => { s.ghost = v.ghost.includes(s.key); });
+  await Promise.all(Object.values(systems).map((s) => setOn(s, v.on.includes(s.key))));
+  renderSystems();
+}
+
 /* ---------- reset ---------- */
 async function reset() {
   hiddenParts.clear();
   select(null);
   goRegion(REGIONS[0]);
-  for (const s of Object.values(systems)) {
-    s.ghost = DEFAULT_GHOST.includes(s.key);
-    await setOn(s, DEFAULT_ON.includes(s.key));
-  }
+  await setView('muscles');
 }
 $('reset').onclick = reset;
 
@@ -525,6 +644,21 @@ async function start() {
     views.appendChild(b);
   });
   goRegion(REGIONS[0], true);
+  // man / woman switch and the one-tap views
+  document.querySelectorAll('#sex button').forEach((b) => {
+    b.setAttribute('aria-pressed', b.dataset.sex === sex);
+    b.onclick = () => setSex(b.dataset.sex);
+  });
+  const lv = $('views-layers');
+  Object.entries(VIEWS).forEach(([k, v]) => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.dataset.v = k;
+    b.textContent = v.label;
+    b.setAttribute('aria-pressed', k === currentView);
+    b.onclick = () => setView(k);
+    lv.appendChild(b);
+  });
 
   try {
     await Promise.all(DEFAULT_ON.map((k) => loadSystem(systems[k])));
@@ -803,5 +937,10 @@ initReport(window.__hooks = { // also exposed for testing in the browser console
     cinematic({ point, normal: new THREE.Vector3(0, 0, 1), size: 1 }, { wideShot: false, fade: false, orbitDeg: 30, distance });
   },
   deselect: () => select(null),
+  // a report about female (or male) organs switches the body to match
+  matchSex: (ids) => {
+    const need = ids.map((id) => INDEX?.parts[id]?.sex).find(Boolean);
+    if (need && need !== sex) setSex(need);
+  },
   clear: () => reset(),
 });

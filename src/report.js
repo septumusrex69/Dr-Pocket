@@ -387,6 +387,8 @@ function render(d, body, { id = null, history = [], pages: shownPages = [], save
     body.clear();
   });
 
+  // a report about female organs shows the woman's body (and male organs the man's)
+  body.matchSex(findings.flatMap((f) => idsFor(f)));
   // Open the walkthrough on its first scene, ready to play.
   film.open({ scenes, region: d.region }, { start: 0, play: false });
   out.scrollIntoView({ block: 'start', behavior: 'smooth' });

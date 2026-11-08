@@ -24,7 +24,9 @@ FRONT = np.array([0.0, 0.0, 1.0])
 COLOR = {
     'ligament': '#C9DCE4', 'tendon': '#C9DCE4', 'labrum': '#1FA88A', 'meniscus': '#2BA6A0',
     'cartilage': '#6FB4E6', 'nerve': '#F2C33A', 'cord': '#F5D25A',
+    'uterus': '#D8738F', 'ovary': '#E9A9B8', 'tube': '#E48AA2', 'vagina': '#D98199', 'breast': '#F2C9A8',
 }
+SEX = {}  # name -> 'female' for the parts that replace the male reproductive organs
 
 
 def load(name):
@@ -405,6 +407,57 @@ for side in ('Right', 'Left'):
     p2 = np.array([out * 0.026, sac_top[1] - 0.03, sac_top[2] + 0.012])
     add(f'{side} S1 nerve root', 'nerve', sweep(smooth_path([p0, p1, p2], 20), 0.0024, ref=UP, taper=3))
 
+# ---------------------------------------------------------------- female reproductive organs and breasts
+# BodyParts3D is a male body. For the "woman" option these are drawn in the pelvis, placed from the
+# bladder and rectum (the uterus sits on top of and behind the bladder, tilted forward), and breast
+# tissue in front of the chest muscles. Approximate shapes, like everything drawn here.
+def ellipsoid(c, r, axis=None, n=28):
+    m = trimesh.creation.uv_sphere(radius=1.0, count=[n, n])
+    m.vertices = m.vertices * np.asarray(r)
+    if axis is not None:  # turn the long (y) axis to point along `axis`
+        R = trimesh.geometry.align_vectors(UP, unit(np.asarray(axis, float)))
+        m.apply_transform(R)
+    m.vertices = m.vertices + np.asarray(c)
+    return m
+
+
+def pear(base, tip, r_base, r_tip, flat=0.7, n=36):
+    """A pear shape (uterus) from the narrow end at base to the wide rounded end at tip."""
+    path = smooth_path([base, (base + tip) / 2, tip], n)
+    t = np.linspace(0, 1, n)
+    radius = r_base + (r_tip - r_base) * np.sin(t * np.pi / 2) ** 1.5
+    radius[-4:] *= np.array([0.92, 0.78, 0.55, 0.2])  # round off the top (fundus)
+    return sweep(path, radius, radius * flat, ref=FRONT)
+
+
+bl, re_ = bone('Urinary bladder'), bone('Rectum')
+blc, blt = bl.vertices.mean(axis=0), bl.vertices[:, 1].max()
+cervix = np.array([0.0, blt - 0.004, (blc[2] + re_.vertices.mean(axis=0)[2]) / 2 + 0.004])
+fundus = cervix + unit(np.array([0, 0.75, 0.66])) * 0.07  # tilted forward over the bladder
+add('Uterus', 'uterus', pear(cervix, fundus, 0.011, 0.026, flat=0.68))
+SEX['Uterus'] = 'female'
+add('Cervix', 'uterus', sweep(smooth_path([cervix + np.array([0, -0.012, -0.004]), cervix + np.array([0, 0.006, 0.002])], 12), 0.0115, 0.009, ref=FRONT, taper=3))
+SEX['Cervix'] = 'female'
+introitus = np.array([0.0, 0.752, 0.112])
+vag = smooth_path([cervix + np.array([0, -0.01, -0.004]), np.array([0, 0.79, 0.082]), introitus], 30)
+add('Vagina', 'vagina', sweep(vag, 0.012, 0.0055, ref=FRONT, taper=4))
+SEX['Vagina'] = 'female'
+top = fundus + np.array([0, -0.006, -0.004])
+for side in ('Right', 'Left'):
+    out = -side_x(side)
+    ov = np.array([out * 0.058, cervix[1] + 0.045, cervix[2] - 0.004])
+    add(f'{side} ovary', 'ovary', ellipsoid(ov, (0.009, 0.016, 0.0075), axis=[out * 0.3, 1, -0.2]))
+    SEX[f'{side} ovary'] = 'female'
+    corner = top + np.array([out * 0.021, 0, 0])
+    tube = smooth_path([corner, corner + np.array([out * 0.028, 0.008, -0.006]), ov + np.array([out * 0.012, 0.02, 0.008]), ov + np.array([out * 0.004, 0.012, -0.012])], 40)
+    radius = np.r_[np.full(len(tube) - 8, 0.0028), np.linspace(0.0032, 0.007, 8)]  # widens into the fimbriae
+    add(f'{side} fallopian tube', 'tube', sweep(tube, radius, ref=UP))
+    SEX[f'{side} fallopian tube'] = 'female'
+    # breast tissue (glands and fat) in front of the chest muscle; the skin is shaped over it in the app
+    bc = np.array([out * 0.095, 1.198, 0.212])
+    add(f'{side} breast', 'breast', ellipsoid(bc, (0.058, 0.055, 0.038), axis=[out * 0.15, 1, 0.1]))
+    SEX[f'{side} breast'] = 'female'
+
 # ---------------------------------------------------------------- check: drawn parts should not be buried in bone
 BONES = {'ankle': ['fibula', 'talus', 'calcaneus', 'tibia'], 'knee': ['femur', 'tibia', 'fibula', 'patella']}
 for name, kind, mesh in added:
@@ -425,6 +478,12 @@ for k, (name, kind, mesh) in enumerate(added):
     lo, hi = mesh.vertices.min(axis=0), mesh.vertices.max(axis=0)
     index['parts'][pid] = {'name': name, 'sys': 'added', 'drawn': True, 'color': COLOR[kind],
                            'b': [round(float(x), 4) for x in (*lo, *hi)]}
+    if name in SEX:
+        index['parts'][pid]['sex'] = SEX[name]
+# the model's own reproductive organs are male; the app hides them for the "woman" option
+for v in index['parts'].values():
+    if v.get('sys') == 'genital':
+        v['sex'] = 'male'
 path = os.path.join(OUT, 'added.glb')
 scene.export(path)
 index['systems'] = [s for s in index['systems'] if s['key'] != 'added'] + [
