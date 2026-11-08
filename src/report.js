@@ -106,6 +106,14 @@ function idsForNames(names, side) {
 }
 const idsFor = (f) => idsForNames([...(f.structures || []), f.focus].filter(Boolean), f.side);
 
+/* What the model can show for a finding. */
+function modelNote(f) {
+  const drawn = (f.draw && f.draw.shape !== 'none') || (f.focus && idsForNames([f.focus], f.side).some((id) => id.startsWith('DP')));
+  if (drawn) return '<small>Drawn by Dr Pocket to show where it is. The shape is approximate.</small>';
+  if (!idsFor(f).length) return '<small>Not shown on the model.</small>';
+  return f.approximate ? '<small>The exact part is too small for the 3D model, so the area around it is shown.</small>' : '';
+}
+
 /* The walkthrough: intro, one scene per finding, closing scene with the questions. */
 function buildScenes(d) {
   const scenes = [{ kind: 'intro', title: d.exam || 'Your report', text: d.intro_narration || d.summary, region: d.region }];
@@ -114,6 +122,10 @@ function buildScenes(d) {
       kind: 'finding', title: f.title, text: f.narration || f.plain, visual: f.visual || f.kind === 'normal' && 'normal' || 'other',
       label: f.marker_label || '', sub: f.approximate ? 'Area around it' : 'From your report',
       ids: idsFor(f), focusIds: f.focus ? idsForNames([f.focus], f.side) : [], nearIds: f.near ? idsForNames([f.near], f.side) : [],
+      draw: f.draw && f.draw.shape !== 'none' ? {
+        shape: f.draw.shape, name: f.draw.name || f.title, color: '#1FA88A',
+        fromIds: idsForNames([f.draw.from], f.side), toIds: f.draw.to ? idsForNames([f.draw.to], f.side) : [],
+      } : null,
       region: d.region,
     });
   });
@@ -221,7 +233,7 @@ function render(d, body) {
         <b>${esc(f.title)}<em class="tag ${esc(f.kind)}">${LABEL[f.kind] || ''}</em></b>
         ${f.marker_label ? `<small style="color:${VISUAL_COLOR[f.visual] || 'inherit'}">● ${esc(f.marker_label)}</small>` : ''}
         <span>${esc(f.plain)}</span>
-        ${idsFor(f).length ? (f.approximate ? '<small>The exact part is too small for the 3D model, so the area around it is shown.</small>' : '') : '<small>Not shown on the model.</small>'}
+        ${modelNote(f)}
       </button>
       ${f.report_quote ? `<blockquote class="quote"><small>Your report says</small>${esc(f.report_quote)}</blockquote>` : ''}
       ${f.background ? `<details class="bg"><summary>More background</summary><p>${esc(f.background)}</p></details>` : ''}

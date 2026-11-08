@@ -28,7 +28,7 @@ const SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['title', 'report_quote', 'plain', 'background', 'kind', 'structures', 'approximate', 'side', 'focus', 'near', 'visual', 'marker_label', 'narration'],
+        required: ['title', 'report_quote', 'plain', 'background', 'kind', 'structures', 'approximate', 'side', 'focus', 'near', 'draw', 'visual', 'marker_label', 'narration'],
         properties: {
           title: { type: 'string', description: 'Short plain name of the finding, e.g. "Partial tear of a shoulder tendon".' },
           report_quote: { type: 'string', description: 'The exact words from the report this finding is about, copied word for word.' },
@@ -40,6 +40,16 @@ const SCHEMA = {
           side: { type: 'string', enum: ['left', 'right', 'both', 'none'] },
           focus: { type: 'string', description: 'The one structure (copied exactly from STRUCTURES, and also listed in structures) where the finding is. Empty if none.' },
           near: { type: 'string', description: 'A second structure from STRUCTURES that the finding sits right next to, so the marker lands where the two meet (e.g. the bone a tendon tears off). Empty if not useful.' },
+          draw: {
+            type: 'object', additionalProperties: false, required: ['shape', 'name', 'from', 'to'],
+            description: 'Only when the structure this finding is about is not in STRUCTURES at all: describe a simple shape for the app to draw in its place. Otherwise shape "none".',
+            properties: {
+              shape: { type: 'string', enum: ['none', 'band', 'cord', 'pad'], description: 'band: a ligament or tendon running from one part to another. cord: a nerve or vessel from one part to another. pad: a cushion, cyst or swelling where two parts meet.' },
+              name: { type: 'string', description: 'Plain name of the structure being drawn, e.g. "Right scapholunate ligament". Empty when shape is none.' },
+              from: { type: 'string', description: 'A structure from STRUCTURES where it starts (or one of the two it sits between). Empty when shape is none.' },
+              to: { type: 'string', description: 'A structure from STRUCTURES where it ends (or the other one it sits between). Empty when shape is none.' },
+            },
+          },
           visual: { type: 'string', enum: VISUALS, description: 'What kind of change this is, for the marker colour.' },
           marker_label: { type: 'string', description: 'Two to five words shown next to the marker, e.g. "Partial tear, about 6 mm".' },
           narration: { type: 'string', description: 'What the voice says while this finding is shown: three to five short spoken sentences. Say where it is on the body in everyday words, what the report says, and what that means in plain terms.' },
@@ -84,7 +94,9 @@ How to write:
 
 Showing findings on the 3D model:
 - For each finding, list in "structures" the names of the parts involved, copied exactly from the STRUCTURES list below. Use whole organs (e.g. "Liver", "Heart", "Brain") when the finding is about the whole organ.
-- The model lacks many small structures (for example labrum, cruciate ligaments, menisci, most limb nerves, joint cartilage). Then choose the nearest structures that are in the list (for a knee ligament: "Femur", "Tibia", "Patella") and set approximate to true.
+- The list includes structures Dr Pocket has drawn to fill gaps in the anatomy data: glenoid and acetabular labrum, joint cartilage (glenoid cavity, humeral head, acetabulum, femoral head, femoral condyles, trochlea, tibial plateau, patella), anterior and posterior cruciate ligaments, medial and lateral collateral ligaments, medial and lateral menisci, patellar tendon, anterior talofibular and calcaneofibular ligaments, spinal cord, cauda equina, and nerve roots C2 to S1. Use them directly as focus (approximate stays false).
+- If the structure a finding is about is still not in the list, fill in "draw" so the app draws a simple shape for it between two listed structures (a ligament between two bones is a band; a nerve is a cord; a cyst or swelling between two parts is a pad), and use the drawn structure's neighbours in structures and focus. Set approximate to true.
+- If nothing sensible can be drawn, choose the nearest listed structures and set approximate to true.
 - "side" is the side of the body the finding is on, from the report. Use "none" for midline structures like the spine.
 - Normal findings can have an empty structures list.
 
@@ -141,6 +153,8 @@ export default async function handler(req, res) {
       structures: onlyKnown(f.structures),
       focus: KNOWN.has(f.focus) ? f.focus : '',
       near: KNOWN.has(f.near) ? f.near : '',
+      draw: f.draw && f.draw.shape !== 'none' && KNOWN.has(f.draw.from) && (!f.draw.to || KNOWN.has(f.draw.to))
+        ? f.draw : { shape: 'none', name: '', from: '', to: '' },
     }));
     return res.status(200).json(data);
   } catch (err) {

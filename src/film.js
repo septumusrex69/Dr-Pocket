@@ -113,9 +113,18 @@ export function createFilm(body) {
 
     pin = null;
     placePin();
+    // a structure the model lacks is drawn the first time its scene comes up
+    if (sc.kind === 'finding' && sc.draw && !sc.drawnId && sc.draw.fromIds.length) {
+      sc.drawnId = await body.drawStandIn(sc.draw);
+      if (scenes[i] !== sc) return;
+      if (sc.drawnId) { sc.ids = [sc.drawnId, ...sc.ids]; sc.focusIds = [sc.drawnId]; }
+    }
     if (sc.kind === 'finding' && sc.ids.length) {
       const color = VISUAL_COLOR[sc.visual] || VISUAL_COLOR.other;
-      const ok = await body.focusParts(sc.ids, sc.title, sc.sub, color, sc.focusIds.length ? sc.focusIds : sc.ids);
+      // only the problem part stays solid; its neighbours fade like the rest (bones stay clearly
+      // visible), so a ligament or cartilage inside a joint is not hidden by the bones around it
+      const solid = sc.focusIds.length ? sc.focusIds : sc.ids;
+      const ok = await body.focusParts(solid, sc.title, sc.sub, color, solid);
       if (!ok || scenes[i] !== sc) return;
       const m = body.markerFor(sc.focusIds.length ? sc.focusIds : sc.ids, sc.nearIds);
       if (m) {

@@ -23,6 +23,7 @@ const COLOR = {
   skin: '#E0AE92', skeleton: '#EDE2C8', cartilage: '#6FB4E6', joints: '#F1E9DA', muscles: '#B9473D',
   heart: '#A82A35', arteries: '#D23A36', veins: '#3C66C9', nerves: '#F2C33A', senses: '#9B7BD4',
   lungs: '#E59AA6', gut: '#D79A5C', urinary: '#B9644A', genital: '#D58BB0', glands: '#5DB585',
+  added: '#1FA88A',
 };
 // How each kind of tissue catches the light: soft sheen on muscle, satin bone, wet gloss on organs.
 const LOOK = {
@@ -34,7 +35,7 @@ const LOOK = {
   nerves: { roughness: 0.4, sheen: 0.5, sheenColor: '#FFF2B0', clearcoat: 0.2 },
   organ: { roughness: 0.38, clearcoat: 0.55, clearcoatRoughness: 0.22 },
 };
-const DEFAULT_ON = ['skeleton', 'muscles'];
+const DEFAULT_ON = ['skeleton', 'muscles', 'added'];
 const DEFAULT_GHOST = ['skin'];
 const HILITE = new THREE.Color('#F2B705');
 
@@ -214,6 +215,14 @@ function goRegion(r, instant) {
 /* ---------- materials ---------- */
 function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return (h >>> 0) / 4294967295; }
 function makeMaterial(sysKey, id) {
+  // parts drawn by Dr Pocket carry their own colour (cartilage blue, labrum green, nerves yellow...)
+  const own = INDEX?.parts[id]?.color;
+  if (own) {
+    return new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(own), metalness: 0, envMapIntensity: 0.8, side: THREE.DoubleSide,
+      roughness: 0.38, ...(phone ? {} : { clearcoat: 0.45, clearcoatRoughness: 0.25 }),
+    });
+  }
   const c = new THREE.Color(COLOR[sysKey] || '#BBBBBB');
   // small shade changes between neighbouring parts so they read as separate pieces
   const jitter = sysKey === 'skin' ? 0 : (hash(id) - 0.5) * (sysKey === 'muscles' ? 0.14 : 0.07);
@@ -342,7 +351,7 @@ function renderSystems() {
    A selection is one part (tapped or searched) or a whole organ made of several parts (searched). */
 function partSelection(id) {
   const p = INDEX.parts[id];
-  return { ids: new Set([id]), title: p.name, sub: systems[p.sys].label };
+  return { ids: new Set([id]), title: p.name, sub: p.drawn ? 'Drawn by Dr Pocket · approximate shape' : systems[p.sys].label };
 }
 function groupSelection(name) {
   const ids = GROUPS[name];
@@ -704,9 +713,67 @@ function toScreen(p) {
   return { x: (_v.x + 1) / 2 * r.width, y: (1 - _v.y) / 2 * r.height };
 }
 
+/* ---------- drawing a missing structure on the fly ----------
+   When a report names something the model still lacks, the explainer describes it as a shape
+   between two parts that are in the model, and it is drawn here: a band or cord from one to the
+   other, or a pad where they meet. It joins the "Drawn by Dr Pocket" layer. */
+let drawnCount = 0;
+function nearestTo(points, target) {
+  let best = null, bd = Infinity;
+  for (const a of points) {
+    const d = (a[0] - target.x) ** 2 + (a[1] - target.y) ** 2 + (a[2] - target.z) ** 2;
+    if (d < bd) { bd = d; best = a; }
+  }
+  return new THREE.Vector3(best[0], best[1], best[2]);
+}
+function centreOf(points) {
+  const c = new THREE.Vector3();
+  points.forEach((a) => c.add(_v.set(a[0], a[1], a[2])));
+  return c.multiplyScalar(1 / points.length);
+}
+async function drawStandIn({ shape, fromIds, toIds, name, color = '#1FA88A' }) {
+  const sys = systems.added;
+  if (sys && !sys.on) await setOn(sys, true);
+  const need = new Set([...fromIds, ...toIds].map((id) => INDEX.parts[id]?.sys).filter(Boolean));
+  await Promise.all([...need].map((k) => (systems[k].group ? null : loadSystem(systems[k]))));
+  const A = vertsOf(fromIds, 4000), B = toIds.length ? vertsOf(toIds, 4000) : [];
+  if (!A.length) return null;
+  let geo;
+  if (shape === 'pad' && B.length) {
+    const m = markerFor(fromIds, toIds);
+    const r = THREE.MathUtils.clamp(m.size * 0.08, 0.004, 0.015);
+    geo = new THREE.SphereGeometry(r, 24, 16);
+    geo.scale(1, 0.45, 1);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), m.normal.clone().normalize());
+    geo.applyQuaternion(q);
+    geo.translate(m.point.x, m.point.y, m.point.z);
+  } else {
+    // band or cord from the side of one part facing the other, to the side of the other facing the first
+    const a = nearestTo(A, B.length ? centreOf(B) : centreOf(A));
+    const b = B.length ? nearestTo(B, centreOf(A)) : a.clone().add(new THREE.Vector3(0, -0.03, 0));
+    const mid = a.clone().lerp(b, 0.5);
+    const bow = new THREE.Vector3(mid.x, 0, mid.z - 0.08).normalize().multiplyScalar(a.distanceTo(b) * 0.12);
+    const curve = new THREE.CatmullRomCurve3([a, mid.add(bow), b]);
+    const r = shape === 'band' ? 0.004 : 0.003;
+    geo = new THREE.TubeGeometry(curve, 24, r, 12, false);
+    if (shape === 'band') geo.scale(1, 1, 1); // kept round but wider; reads as a ligament or tendon
+  }
+  const id = `RT${drawnCount++}`;
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  INDEX.parts[id] = { name, sys: 'added', drawn: true, color, b: [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z] };
+  const mesh = new THREE.Mesh(geo, makeMaterial('added', id));
+  mesh.userData.id = id;
+  mesh.userData.sys = 'added';
+  partMesh[id] = mesh;
+  if (sys) { sys.meshes.push(mesh); sys.group.add(mesh); applyLook(sys); }
+  return id;
+}
+
 /* ---------- report explainer hooks ---------- */
-initReport({
-  markerFor, lookAtPoint, toScreen, cinematic, stopCine,
+initReport(window.__hooks = { // also exposed for testing in the browser console
+  markerFor, lookAtPoint, toScreen, cinematic, stopCine, drawStandIn,
+  isDrawn: (id) => !!INDEX?.parts[id]?.drawn,
   onFrame: (f) => { frameListeners.add(f); redraw(); return () => frameListeners.delete(f); },
   // light up parts with a colour, fade everything else, and stay put (the walkthrough moves the camera)
   focusParts: async (ids, title, sub, tint, tintIds) => {

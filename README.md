@@ -45,12 +45,13 @@ total). To rebuild them from the original download:
 1. From the BodyParts3D download page, get `isa_BP3D_4.0_obj_99.zip`, `isa_element_parts.txt`,
    `isa_inclusion_relation_list.txt` and `partof_element_parts.txt` into one folder, and unzip
    the zip into `raw/` inside it.
-2. Install the tools: `pip install trimesh fast-simplification numpy` and `npm install`.
+2. Install the tools: `pip install trimesh fast-simplification numpy scipy rtree` and `npm install`.
 3. Run, with that folder as `SRC` and any scratch folder as `WORK`:
 
 ```bash
 python3 tools/classify.py "$SRC" "$WORK/parts.json"
 python3 tools/build_models.py "$SRC" "$WORK/parts.json" "$WORK/glb"
+python3 tools/build_added.py "$SRC" "$WORK/glb"
 tools/pack_models.sh "$WORK/glb"
 python3 tools/build_groups.py "$SRC" public/models/index.json public/models/groups.json
 node tools/build_vocab.mjs
@@ -58,6 +59,9 @@ node tools/build_vocab.mjs
 
 - `classify.py` names every part and sorts it into a body system.
 - `build_models.py` simplifies each system to its triangle budget and writes one model per system.
+- `build_added.py` draws the structures BodyParts3D lacks (labrum, cruciate and collateral ligaments,
+  menisci, joint cartilage, patellar tendon, ankle ligaments, spinal cord, cauda equina, nerve roots C2–S1)
+  from the bones around them. They are approximate shapes, marked as drawn in the app.
 - `pack_models.sh` compresses those models into `public/models/`.
 - `build_groups.py` lists whole organs and regions made of several parts, for search.
 
