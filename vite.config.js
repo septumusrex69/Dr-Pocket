@@ -10,7 +10,7 @@ const hash = createHash('sha1');
 for (const f of readdirSync(modelsDir).sort()) hash.update(f).update(readFileSync(resolve(modelsDir, f)));
 const MODELS_VERSION = hash.digest('hex').slice(0, 10);
 
-// Two pages: the whole-body explorer and the shoulder walkthrough.
+// Three pages: the whole-body explorer, the shoulder walkthrough and My health (the journal).
 export default defineConfig({
   define: { __MODELS_VERSION__: JSON.stringify(MODELS_VERSION) },
   build: {
@@ -19,6 +19,7 @@ export default defineConfig({
       input: {
         main: resolve(import.meta.dirname, 'index.html'),
         shoulder: resolve(import.meta.dirname, 'shoulder/index.html'),
+        health: resolve(import.meta.dirname, 'health/index.html'),
       },
     },
   },

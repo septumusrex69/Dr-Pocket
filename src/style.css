@@ -22,6 +22,7 @@ a{color:var(--accent)}
 header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 header h1{font-family:var(--f-display);font-weight:600;font-size:22px;line-height:1.1;margin:0}
 header p{margin:0;color:var(--muted);font-size:13px}
+header .my-health{margin-left:auto;text-decoration:none;padding:7px 12px}
 .grid{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,58fr) minmax(0,42fr);gap:10px}
 @media (min-width:760px),(orientation:landscape) and (min-width:560px){.grid{grid-template-columns:minmax(0,1fr) clamp(300px,32vw,400px);grid-template-rows:minmax(0,1fr)}}
 .viewer{position:relative;border-radius:14px;overflow:hidden;background:var(--stage);border:1px solid var(--line);min-width:0;min-height:0}

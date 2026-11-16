@@ -1,12 +1,55 @@
 {
   "functions": {
-    "api/explain.js": { "maxDuration": 300 },
-    "api/ask.js": { "maxDuration": 120 }
+    "api/explain.js": {
+      "maxDuration": 300
+    },
+    "api/ask.js": {
+      "maxDuration": 120
+    },
+    "api/progress.js": {
+      "maxDuration": 300
+    }
   },
   "headers": [
     {
       "source": "/models/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
+      ]
+    },
+    {
+      "source": "/health/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     }
   ]
 }

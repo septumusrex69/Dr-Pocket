@@ -54,7 +54,12 @@ app and rebuilding the models; this file adds the rest.
 | `tools/build_added.py` | The 90+ drawn structures plus the female organs, with `sex` tags |
 | `shoulder/index.html`, `public/shoulder/` | Shoulder walkthrough |
 | `vite.config.js` | The two pages, plus `__MODELS_VERSION__` (a hash of `public/models`, added to model URLs so updates are not hidden by the cache) |
-| `vercel.json` | Function time limits (explain 300 s, ask 120 s) and model caching |
+| `health/index.html`, `src/health/*` | My health: the journal (see the My health section) |
+| `api/progress.js` | Progress report from the journal |
+| `health/index.html`, `src/health/*` | My health: the journal (see the My health section) |
+| `api/progress.js` | Progress report drawn from the journal |
+| `supabase/migrations/` | The journal's database schema |
+| `vercel.json` | Function time limits (explain 300 s, ask 120 s, progress 300 s), model caching, service worker headers |
 
 ## Conventions and gotchas
 
@@ -72,19 +77,43 @@ app and rebuilding the models; this file adds the rest.
   - The test scripts live in the old session's scratchpad and are not in the repo.
   - To check that a deploy is live, look at the Vercel deployments.
 
-## On hold: cloud sync
+## My health (the journal) — `/health/`
 
-The user said **"later"**, so do not start without their go-ahead.
+Built 16 Nov 2026 on branch `claude/exciting-shannon-bia9g9`. The user asked for: log in, create a problem tied to an
+area of the body, document everything about it (dated notes, X-rays and files, dictation like Raptor/Remus), log
+exercise, use it on the phone like Remus, and draw a progress report over a chosen period that analyses it all.
 
-**Plan agreed so far:**
-- Supabase for storage, with email sign-in sent through Resend.
-- Verified Resend domains: `bredellferreira.co.za` and `bfnews.co.za`.
-- The user can delete any report, or their whole account, at any time.
-- Optional auto-delete: never, after 6 months or after 1 year.
+- **Supabase project "Dr Pocket"** (`lpdvppqtpatbzvrrgdnr`, eu-west-3, org Team Raptor, now on Pro). Schema in
+  `supabase/migrations/0001_health_journal.sql` (applied): `problems`, `entries` (kind `note` or `exercise`, `at`,
+  `body`, `pain` 0–10, `exercise` jsonb), `files` (private bucket `health`, path `uid/<problem>/<uuid>-name`),
+  `reports` (saved report JSON). RLS on every table: owner only. `delete_my_account()` removes the user and,
+  through cascades, all rows; the app removes their stored files first (storage cannot be deleted from SQL).
+- **Front end** (`health/index.html`, `src/health/`): vanilla JS like the rest of the site, hash routes.
+  `config.js` holds the project URL and the publishable key (public by design). `db.js` is every read and write.
+  `dictate.js` is a port of Remus's dictation (browser speech recognition: free, en-ZA / af-ZA / en-GB, keeps
+  listening through pauses). Photos are shrunk to 2000 px JPEG before upload; PDFs up to 25 MB.
+- **Progress report** (`api/progress.js`): the page sends its Supabase access token; the function reads the
+  journal as that user (RLS), adds up to 6 earlier entries for comparison and up to 8 images/PDFs (20 MB total) if
+  "look at the files" is ticked, asks Claude Opus 5.5 (effort medium, structured JSON, server-side fallback via
+  `_shared.js`) and saves the result plus computed stats (counts, first/last pain, weekly average pain) to `reports`.
+  Ranges: 7 days, 1, 3, 6, 12 months, everything, custom dates; per problem, general, or all problems.
+  Notes themselves never call Claude (cost is only when a report is drawn).
+- **Phone app**: `public/manifest.webmanifest` (start `/health/`), `public/sw.js` (caches no app code, only
+  `offline.html`, as in Remus), icons in `public/icons/`. iPhone: Safari → Share → Add to Home Screen.
+- **Tested** with Playwright at iPhone 13 size against the real Supabase project and a fake Anthropic endpoint:
+  sign in, create a problem, notes with pain and a back-dated time, photo upload and thumbnail, exercise, the
+  report, account deletion. The sandbox needed `lpdvppqtpatbzvrrgdnr.supabase.co` allowed (done) and
+  `NODE_USE_ENV_PROXY=1` for Node to use the proxy.
 
-**Decisions still open:**
-- **Supabase project:** the free org "Team Raptor" is at its 2-project limit (Remus, Sales Raptor Staging). Either upgrade, pause or delete a project, or use another org.
-- **Sending domain:** which one to send sign-in emails from.
+**Still to do in the Supabase dashboard (no tool for it here):**
+1. Authentication → URL Configuration: Site URL `https://dr-pocket-two.vercel.app/health/`, and add
+   `https://dr-pocket-two.vercel.app/**` and `https://*-team-raptor.vercel.app/**` (previews) to Redirect URLs.
+   Until then, confirmation, sign-in and reset links point at localhost.
+2. Authentication → SMTP: Resend (`smtp.resend.com`, port 465, user `resend`, a Resend API key), sender
+   `drpocket@bredellferreira.co.za` (chosen 16 Nov; the user was unsure, change freely). Supabase's built-in mailer
+   only sends a few emails an hour and only to team members.
+
+Older plan points not built yet: optional auto-delete (never / 6 months / 1 year).
 
 ## Ideas not yet built
 
