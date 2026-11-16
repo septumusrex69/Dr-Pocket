@@ -118,7 +118,7 @@ export const files = {
 /* ---------- progress reports ---------- */
 export const reports = {
   async list(problemId) {
-    let q = sb.from('reports').select('id, problem_id, range_label, range_from, range_to, created_at, content->headline, content->overall').order('created_at', { ascending: false }).limit(50);
+    let q = sb.from('reports').select('id, kind, problem_id, range_label, range_from, range_to, created_at, content->headline').order('created_at', { ascending: false }).limit(50);
     if (problemId) q = q.eq('problem_id', problemId);
     return must(await q);
   },

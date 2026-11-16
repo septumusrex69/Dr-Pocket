@@ -8,6 +8,9 @@
     },
     "api/progress.js": {
       "maxDuration": 300
+    },
+    "api/evening.js": {
+      "maxDuration": 60
     }
   },
   "headers": [
@@ -50,6 +53,12 @@
           "value": "no-cache"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/evening",
+      "schedule": "0 19 * * *"
     }
   ]
 }

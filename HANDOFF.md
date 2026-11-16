@@ -120,6 +120,17 @@ exercise, use it on the phone like Remus, and draw a progress report over a chos
   `dr-pocket-symbol.svg` unchanged (`mark()` in `icons.js`) beside a Montserrat SemiBold Italic HTML wordmark (the
   pack's own wordmark uses a stand-in font). Phone icons are made from `dr-pocket-app-icon.svg`: 192/512 as supplied;
   180 (iPhone) with square corners, since iOS rounds them; maskable with the symbol inside Android's safe zone.
+- **End of day (16 Nov):** check-in screen `#/checkin` (a `kind='day'` entry, General: 1–5 rating, overall pain,
+  sleep hours/quality, energy, mood, words), with a "your day so far" summary worked out on the device. Home shows
+  a check-in card. Reminder at 21:00 South African time: Vercel cron `0 19 * * *` → `api/evening.js`, which calls
+  the database function `evening_digest(secret)` (counts only, no words) and sends web push (`web-push`, VAPID).
+  Devices subscribe in Settings → Evening reminder (rows in `push_subscriptions`, RLS owner only). iPhone needs
+  the app on the Home Screen (iOS 16.4+). Needs on Vercel: `VAPID_PRIVATE_KEY` and `CRON_SECRET`; the same
+  CRON_SECRET in `private.app_secrets` (name 'cron'). The VAPID public key is in `src/health/config.js`.
+  Migration `0003_checkin_push_feedback.sql` (applied).
+- **Two report kinds** (Reports tab): "Feedback for me" (`reports.kind='feedback'`: how it went, going well,
+  harder, patterns recorded together, ideas to try with reasons, what to track, questions for the clinician) and
+  "Summary for my doctor" (`clinician`, as before). Both need the consent tick, cite entries, include check-ins.
 - **Phone app**: `public/manifest.webmanifest` (start `/health/`), `public/sw.js` (caches no app code, only
   `offline.html`, as in Remus), icons `public/icons/icon-{180,192,512,maskable}.png`. iPhone: Safari → Share → Add to Home Screen; remove and re-add to get a new icon.
 - **Tested** with Playwright at iPhone 15 Pro size against the real Supabase project (a throwaway account holding a

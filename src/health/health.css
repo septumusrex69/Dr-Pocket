@@ -281,6 +281,20 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .chrono-d{font-size:.78em;font-weight:700;color:var(--accent)}
 .print-only{display:none}
 
+/* ---------- end of day ---------- */
+.eod.due{border-color:var(--accent);background:var(--accent-soft)}
+.eod>.i:first-child{background:var(--navy);color:#fff}
+:root[data-appearance="dark"] .eod>.i:first-child{background:var(--accent);color:var(--accent-ink)}
+.rating{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.rating button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 2px;border-radius:12px;border:var(--border) solid var(--line);background:var(--surface);color:var(--ink);font:500 .72em var(--f);cursor:pointer}
+.rating b{font-size:1.6em;font-weight:700;color:var(--accent)}
+.rating button[aria-checked="true"]{background:var(--cta);border-color:transparent;color:#fff}
+.rating button[aria-checked="true"] b{color:#fff}
+.tl.rows.compact .tl-row{padding:9px 12px}
+.tl.rows.compact .tl-tags{display:none}
+.field .seg{margin-top:6px}
+.rsec.good h3{color:var(--low)}.rsec.bad h3{color:var(--mid)}
+
 /* ---------- settings ---------- */
 .modes{display:flex;flex-direction:column;gap:8px}
 .mode{display:flex;align-items:center;gap:12px;padding:12px;border-radius:var(--r-sm);border:var(--border) solid var(--line);background:var(--surface);color:var(--ink);text-align:left;font:inherit;cursor:pointer;width:100%}

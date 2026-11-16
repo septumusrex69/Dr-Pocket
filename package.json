@@ -13,7 +13,8 @@
     "@supabase/supabase-js": "^2.119.0",
     "n8ao": "^2.0.1",
     "postprocessing": "^6.36.4",
-    "three": "^0.169.0"
+    "three": "^0.169.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "gltfpack": "^0.22.0",

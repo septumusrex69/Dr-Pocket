@@ -8,6 +8,7 @@ import { sb, auth, problems, entries, files, reports } from './db.js';
 import { dictation } from './dictate.js';
 import { icon, mark, lockup } from './icons.js';
 import { MODES, currentMode, applyMode } from './appearance.js';
+import { VAPID_PUBLIC_KEY } from './config.js';
 
 const app = document.getElementById('app');
 let session = null;
@@ -163,7 +164,9 @@ function whenPicker(host, entry = null) {
 }
 
 /* ---------- entries: title, summary, timeline rows ---------- */
+const RATING = ['', 'Very bad day', 'Bad day', 'OK day', 'Good day', 'Great day'];
 function titleOf(e) {
+  if (e.kind === 'day') return `End of day · ${RATING[e.checkin?.rating] || 'check-in'}`;
   if (e.kind === 'exercise') return e.exercise?.name || 'Exercise';
   const t = (e.body || '').trim();
   if (!t) return e.pain != null ? 'Pain score' : (e.files?.length ? 'File added' : 'Note');
@@ -171,6 +174,14 @@ function titleOf(e) {
   return first.length > 64 ? `${first.slice(0, 62).trim()}…` : first;
 }
 function summaryOf(e) {
+  if (e.kind === 'day') {
+    const c = e.checkin || {}; const bits = [];
+    if (c.sleep_h != null) bits.push(`slept ${c.sleep_h} h${c.sleep_q ? ` (${c.sleep_q.toLowerCase()})` : ''}`);
+    else if (c.sleep_q) bits.push(`sleep ${c.sleep_q.toLowerCase()}`);
+    if (c.energy) bits.push(`energy ${c.energy.toLowerCase()}`);
+    if (c.mood) bits.push(`mood ${c.mood.toLowerCase()}`);
+    return [bits.join(' · '), e.body].filter(Boolean).join('. ');
+  }
   if (e.kind === 'exercise') {
     const x = e.exercise || {}; const bits = [];
     if (x.sets) bits.push(`${x.sets} × ${x.reps || '?'} reps`); else if (x.reps) bits.push(`${x.reps} reps`);
@@ -182,6 +193,7 @@ function summaryOf(e) {
 }
 function tagsOf(e) {
   const tags = [];
+  if (e.kind === 'day') tags.push(`${icon('moon')}End of day`);
   if (e.kind === 'exercise') tags.push(`${icon('dumbbell')}Exercise`);
   else if (e.activity) tags.push(`${icon('walk')}${esc(e.activity)}`);
   (e.symptoms || []).slice(0, 3).forEach((s) => tags.push(esc(s)));
@@ -355,6 +367,7 @@ async function renderHome() {
         <a class="qa primary" href="#/add">${icon('plus')}<span><b>Add note</b><small>Type or dictate</small></span></a>
         <a class="qa" href="#/exercise">${icon('dumbbell')}<span><b>Log exercise</b><small>Sets, reps, minutes</small></span></a>
       </div>
+      <div id="eod"></div>
       <div class="sec-h"><h2>Active problems</h2><a class="link" href="#/problems">See all</a></div>
       <ul class="cards" id="probs"><li class="empty">Loading…</li></ul>
       <div class="sec-h"><h2>Recent entries</h2><a class="link" href="#/timeline">Timeline</a></div>
@@ -372,6 +385,11 @@ async function renderHome() {
     const [list, all] = await Promise.all([problems.list(), entries.list({ limit: 300 })]);
     const today = all.filter((e) => D(e.at) >= start);
     const withPain = today.find((e) => e.pain != null);
+    const done = today.find((e) => e.kind === 'day');
+    const eod = $('#eod');
+    if (eod) eod.innerHTML = done
+      ? `<a class="card link-card eod done" href="#/e/${done.id}">${icon('moon')}<span><b>Today’s check-in: ${esc(RATING[done.checkin?.rating] || 'done')}</b><small>${esc(summaryOf(done) || 'Tap to see or change it')}</small></span>${icon('chevron')}</a>`
+      : `<a class="card link-card eod ${h >= 17 ? 'due' : ''}" href="#/checkin">${icon('moon')}<span><b>End-of-day check-in</b><small>${h >= 17 ? 'One minute: how was your day overall?' : 'Do it this evening; a reminder comes at 21:00 if it is switched on.'}</small></span>${icon('chevron')}</a>`;
     const tl = $('#today-line');
     if (tl) tl.textContent = today.length ? `Today: ${n(today.length, 'entry', 'entries')} recorded${withPain ? ` · latest pain ${withPain.pain}/10` : ''}.` : 'Nothing recorded yet today.';
     const active = list.filter((p) => p.status === 'active' || p.status === 'improving');
@@ -629,6 +647,72 @@ async function renderAdd() {
   };
 }
 
+/* ---------- end-of-day check-in ---------- */
+// The 21:00 reminder opens this. The summary at the top is worked out on this device from today's entries;
+// nothing is sent to an AI service. The check-in itself is a 'day' entry (General, not tied to one problem).
+function daySoFar(list) {
+  if (!list.length) return '<p class="muted">Nothing else recorded today.</p>';
+  const pains = list.filter((e) => e.pain != null).map((e) => e.pain);
+  const ex = list.filter((e) => e.kind === 'exercise');
+  const sym = {}; list.forEach((e) => (e.symptoms || []).forEach((t) => { sym[t] = (sym[t] || 0) + 1; }));
+  const bits = [n(list.length, 'entry', 'entries')];
+  if (pains.length) bits.push(`pain ${Math.min(...pains)}${Math.max(...pains) !== Math.min(...pains) ? `–${Math.max(...pains)}` : ''}/10`);
+  if (ex.length) bits.push(`${n(ex.length, 'exercise session')} (${ex.map((e) => e.exercise?.name).filter(Boolean).slice(0, 2).join(', ')})`);
+  const top = Object.entries(sym).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
+  return `<p><b>${esc(bits.join(' · '))}</b>${top.length ? `<br><span class="muted small">Symptoms tagged: ${esc(top.join(', '))}</span>` : ''}</p>
+    <ol class="tl rows compact">${list.slice(0, 6).map((e) => entryRow(e)).join('')}</ol>`;
+}
+
+async function renderCheckin() {
+  const ps = params();
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const todayList = (await entries.list({ from: start.toISOString(), limit: 200 })).filter((e) => e.kind !== 'day');
+  const existing = ps.get('e') ? await entries.get(ps.get('e')) : (await entries.list({ problemId: 'none', kind: 'day', from: start.toISOString(), limit: 1 }))[0];
+  const c = existing?.checkin || {};
+  const seg = (name, opts, cur) => `<div class="seg" role="radiogroup" data-name="${name}">${opts.map((o) => `<button type="button" role="radio" data-v="${esc(o)}" aria-checked="${o === cur}">${esc(o)}</button>`).join('')}</div>`;
+  shell({
+    back: '#/', tab: 'home',
+    body: `<p class="eyebrow">${esc((existing ? D(existing.at) : new Date()).toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' }))}</p>
+      <h1 class="h1">End of day</h1>
+      <section class="card"><div class="card-h"><h3>${icon('sparkle')} Your day so far</h3></div>${daySoFar(todayList)}</section>
+      <form id="f" class="stack">
+        <div class="card stack"><div class="lbl">How was your day overall?</div>
+          <div class="rating" role="radiogroup" aria-label="How was your day overall">${[1, 2, 3, 4, 5].map((v) => `<button type="button" role="radio" data-v="${v}" aria-checked="${c.rating === v}"><b>${v}</b><span>${RATING[v].replace(' day', '')}</span></button>`).join('')}</div></div>
+        <div class="card stack" id="pain"></div>
+        <div class="card stack"><div class="lbl">Sleep last night <span class="hint">optional</span></div>
+          <div class="two"><label class="field">Hours<input name="sleep_h" type="number" inputmode="decimal" min="0" max="24" step="0.5" value="${esc(c.sleep_h ?? '')}"></label>
+          <div class="field">Quality${seg('sleep_q', ['Poor', 'OK', 'Good'], c.sleep_q)}</div></div></div>
+        <div class="card stack"><div class="field">Energy <span class="hint">optional</span>${seg('energy', ['Low', 'OK', 'High'], c.energy)}</div>
+          <div class="field">Mood <span class="hint">optional</span>${seg('mood', ['Low', 'OK', 'Good'], c.mood)}</div></div>
+        <div class="card stack"><label class="field">Anything else about today? <span class="hint">optional, in your own words</span><textarea name="body" rows="3" placeholder="e.g. Long day at the desk, shoulder stiff by the evening.">${esc(existing?.body || '')}</textarea></label><div id="dict"></div></div>
+        <p class="err" role="alert"></p>
+      </form>`,
+    foot: `<div class="sticky-cta"><button class="btn primary big" id="save" form="f">${icon('check')} ${existing ? 'Save changes' : 'Save check-in'}</button></div>`,
+  });
+  const f = $('#f');
+  let rating = c.rating || null;
+  $$('.rating button').forEach((b) => { b.onclick = () => { rating = Number(b.dataset.v); $$('.rating button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); }; });
+  const pick = {};
+  $$('.seg[data-name]').forEach((g) => {
+    pick[g.dataset.name] = c[g.dataset.name] || null;
+    g.querySelectorAll('button').forEach((b) => { b.onclick = () => { const v = pick[g.dataset.name] === b.dataset.v ? null : b.dataset.v; pick[g.dataset.name] = v; g.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', String(x.dataset.v === v))); }; });
+  });
+  const pain = painPicker($('#pain'), existing?.pain ?? null, 'Overall pain today');
+  stopDictation.push(dictation($('#dict'), f.body));
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    if (!rating) { $('.err').textContent = 'Choose how your day was, from 1 to 5.'; return; }
+    const sleep = f.sleep_h.value === '' ? null : Number(f.sleep_h.value);
+    const row = { kind: 'day', problem_id: null, body: f.body.value.trim(), pain: pain(), checkin: { rating, sleep_h: sleep, sleep_q: pick.sleep_q, energy: pick.energy, mood: pick.mood } };
+    const btn = $('#save'); busy(btn, true);
+    try {
+      if (existing) await entries.update(existing.id, row);
+      else await entries.create({ ...row, at: new Date().toISOString(), time_known: true });
+      toast('Check-in saved'); go('#/');
+    } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
+  };
+}
+
 /* ---------- one entry ---------- */
 async function renderEntry(id) {
   let e;
@@ -644,6 +728,7 @@ async function renderEntry(id) {
       <p class="muted when-line">${icon('clock')} ${esc(fmtWhen(e))}</p>
       <div class="tl-tags">${painChip(e.pain)}${e.pain == null ? '<span class="tag">Pain not recorded</span>' : ''}${tagsOf(e)}</div>
       ${e.body ? `<section class="card"><div class="card-h"><h3>Your words</h3></div><p class="pre">${esc(e.body)}</p></section>` : ''}
+      ${e.kind === 'day' ? `<dl class="card details">${field('Day', RATING[e.checkin?.rating])}${field('Sleep', [e.checkin?.sleep_h != null ? `${e.checkin.sleep_h} hours` : '', e.checkin?.sleep_q].filter(Boolean).join(', '))}${field('Energy', e.checkin?.energy)}${field('Mood', e.checkin?.mood)}</dl>` : ''}
       ${e.kind === 'exercise' ? `<section class="card"><div class="card-h"><h3>Exercise</h3></div><p>${esc([e.exercise?.name, summaryOf({ ...e, body: '' })].filter(Boolean).join(': '))}</p></section>` : ''}
       ${(e.symptoms?.length || (e.activity && e.kind !== 'exercise') || e.triggers || e.relief || e.impact) ? `<dl class="card details">
         ${field('Symptoms', (e.symptoms || []).join(', '))}${e.kind !== 'exercise' ? field('Doing', e.activity) : ''}${field('Trigger', e.triggers)}${field('What helped', e.relief)}${field('Impact', e.impact)}</dl>` : ''}
@@ -651,7 +736,7 @@ async function renderEntry(id) {
       <p class="small muted">Written down ${esc(fmtDate(e.created_at))}, ${esc(fmtTime(e.created_at))}${e.edits?.length ? ` · edited ${n(e.edits.length, 'time')}` : ''}</p>
       ${e.edits?.length ? `<details class="card more"><summary>Earlier versions</summary><ol class="plain">${e.edits.slice().reverse().map((v) => `<li><span class="small muted">${esc(fmtDate(v.saved_at))}, ${esc(fmtTime(v.saved_at))}</span><p class="pre">${esc(v.body || '(no text)')}${v.pain != null ? ` · pain ${v.pain}/10` : ''}</p></li>`).join('')}</ol></details>` : ''}
       <div class="row-btns">
-        <a class="btn big" href="${e.kind === 'exercise' ? `#/exercise?e=${e.id}` : `#/add?e=${e.id}`}">${icon('edit')} Edit</a>
+        <a class="btn big" href="${e.kind === 'exercise' ? `#/exercise?e=${e.id}` : e.kind === 'day' ? `#/checkin?e=${e.id}` : `#/add?e=${e.id}`}">${icon('edit')} Edit</a>
         <button class="btn big danger" id="del">${icon('trash')} Delete</button>
       </div>`,
   });
@@ -720,30 +805,36 @@ async function renderTimeline() {
 /* ---------- doctor summary ---------- */
 const RANGES = [['14d', 'Last 14 days', 14], ['1m', 'Last month', 30], ['3m', 'Last 3 months', 91], ['6m', 'Last 6 months', 182], ['all', 'Everything', 0], ['custom', 'Choose dates', -1]];
 
+const KINDS = {
+  feedback: { label: 'Feedback for me', line: 'For you: how things went, what seems to help or hurt, and suggestions to try or track.', button: 'Get my feedback', busy: 'Looking over your entries… (up to a minute or two)' },
+  clinician: { label: 'Summary for my doctor', line: 'For your doctor or physio: a short, dated summary in careful words. Every point links back to the entries it came from.', button: 'Create doctor summary', busy: 'Writing your summary… (up to a minute or two)' },
+};
 async function renderReports() {
   const pid = params().get('p') || '';
+  const kind = params().get('kind') === 'clinician' ? 'clinician' : 'feedback';
   const [list, past] = await Promise.all([problems.list().catch(() => []), reports.list(null).catch(() => [])]);
   const chosen = pid || list.find((p) => p.status === 'active')?.id || '';
   shell({
     tab: 'reports',
-    body: `<h1 class="h1">Doctor summary</h1>
-      <p class="muted">A short, dated summary of what you recorded, for your next appointment. Every point links back to the entries it came from.</p>
+    body: `<h1 class="h1">Reports</h1>
+      <div class="seg" role="tablist">${Object.entries(KINDS).map(([k, v]) => `<a role="tab" href="#/reports?kind=${k}${pid ? `&p=${pid}` : ''}" aria-selected="${k === kind}">${v.label}</a>`).join('')}</div>
+      <p class="muted">${KINDS[kind].line}</p>
       <form id="f" class="stack">
         <div class="card stack">
           <label class="field">About<select name="problem">${list.map((p) => `<option value="${p.id}" ${p.id === chosen ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}<option value="" ${!chosen ? 'selected' : ''}>All problems</option></select></label>
           <div class="lbl">Reporting period</div>
           <div class="chips" id="ranges">${RANGES.map(([k, l], i) => `<button type="button" class="chip-btn" data-k="${k}" aria-pressed="${i === 1}">${l}</button>`).join('')}</div>
           <div class="two" id="custom" hidden><label class="field">From<input type="date" name="from"></label><label class="field">To<input type="date" name="to"></label></div>
-          <label class="field">Reason for this visit <span class="hint">optional</span><input name="reason" maxlength="300" placeholder="e.g. 6-week check after surgery"></label>
+          ${kind === 'clinician' ? '<label class="field">Reason for this visit <span class="hint">optional</span><input name="reason" maxlength="300" placeholder="e.g. 6-week check after surgery"></label>' : '<label class="field">Anything you want it to look at? <span class="hint">optional</span><input name="reason" maxlength="300" placeholder="e.g. Is driving making it worse?"></label>'}
           <label class="check"><input type="checkbox" name="withFiles"> Include photos, X-rays and scans (slower)</label>
         </div>
         <div class="card consent">
-          <label class="check"><input type="checkbox" name="consent" required> <span>Send the entries for this period to <b>Claude, Anthropic’s AI</b>, to write the summary. Dr Pocket’s server does not keep a copy; the summary is saved in your account.</span></label>
+          <label class="check"><input type="checkbox" name="consent" required> <span>Send the entries and check-ins for this period to <b>Claude, Anthropic’s AI</b>, to write this report. Dr Pocket’s server does not keep a copy; the report is saved in your account.</span></label>
         </div>
         <p class="err" role="alert"></p>
-        <button class="btn primary big">${icon('sparkle')} Create doctor summary</button>
+        <button class="btn primary big">${icon('sparkle')} ${KINDS[kind].button}</button>
       </form>
-      ${past.length ? `<div class="sec-h"><h2>Earlier summaries</h2></div><ul class="cards">${past.map((r) => `<li><a class="card prob" href="#/r/${r.id}"><div class="prob-h"><div><b>${esc(r.range_label)}</b><span class="muted small">Created ${esc(fmtDate(r.created_at))}</span></div>${icon('chevron')}</div>${r.headline ? `<span class="small">${esc(r.headline)}</span>` : ''}</a></li>`).join('')}</ul>` : ''}`,
+      ${past.length ? `<div class="sec-h"><h2>Earlier reports</h2></div><ul class="cards">${past.map((r) => `<li><a class="card prob" href="#/r/${r.id}"><div class="prob-h"><div><span class="eyebrow">${r.kind === 'clinician' ? 'Doctor summary' : 'Feedback'}</span><b>${esc(r.range_label)}</b><span class="muted small">Created ${esc(fmtDate(r.created_at))}</span></div>${icon('chevron')}</div>${r.headline ? `<span class="small">${esc(r.headline)}</span>` : ''}</a></li>`).join('')}</ul>` : ''}`,
   });
   const f = $('#f'); let k = '1m';
   $$('#ranges button').forEach((b) => { b.onclick = () => { k = b.dataset.k; $$('#ranges button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#custom').hidden = k !== 'custom'; }; });
@@ -759,9 +850,9 @@ async function renderReports() {
     }
     const scope = f.problem.value;
     const name = scope ? list.find((p) => p.id === scope)?.title : 'All problems';
-    const btn = f.querySelector('.primary'); busy(btn, true, 'Writing your summary… (up to a minute or two)'); $('.err').textContent = '';
+    const btn = f.querySelector('.primary'); busy(btn, true, KINDS[kind].busy); $('.err').textContent = '';
     try {
-      const out = await reports.draw({ problem: scope || null, from: from?.toISOString() || null, to: to.toISOString(), label: `${name} · ${label}`, reason: f.reason.value.trim(), withFiles: f.withFiles.checked, consent: true });
+      const out = await reports.draw({ kind, problem: scope || null, from: from?.toISOString() || null, to: to.toISOString(), label: `${name} · ${label}`, reason: f.reason.value.trim(), withFiles: f.withFiles.checked, consent: true });
       go(`#/r/${out.id}`);
     } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
   };
@@ -785,6 +876,7 @@ function weeklyChart(series) {
 async function renderReport(id) {
   let r;
   try { r = await reports.get(id); } catch { return go('#/reports'); }
+  if (r.kind === 'feedback') return renderFeedback(r);
   const c = r.content || {}; const s = c.stats || {};
   const refs = c.refs || {};
   const src = (ids) => (ids || []).filter((k) => refs[k]).map((k) => `<a class="src" href="#/e/${refs[k].id}">${esc(refs[k].date)}</a>`).join('');
@@ -836,6 +928,76 @@ async function renderReport(id) {
   $('#del').onclick = async () => { if (!confirm('Delete this summary? Your entries stay.')) return; await reports.remove(id).catch(() => {}); go('#/reports'); };
 }
 
+// Feedback for the person: friendly, with suggestions. Same rules as the doctor summary: only what was
+// recorded, every point linked to its entries, guesses labelled as guesses, no diagnosis.
+function renderFeedback(r) {
+  const c = r.content || {}; const s = c.stats || {}; const refs = c.refs || {};
+  const src = (ids) => (ids || []).filter((k) => refs[k]).map((k) => `<a class="src" href="#/e/${refs[k].id}">${esc(refs[k].date)}</a>`).join('');
+  const items = (title, arr, cls = '', ic = '') => (arr?.length ? `<section class="card rsec ${cls}"><div class="card-h"><h3>${ic ? icon(ic) : ''}${esc(title)}</h3></div><ul class="plain">${arr.map((it) => `<li>${esc(it.text)} ${src(it.refs)}</li>`).join('')}</ul></section>` : '');
+  const plainText = () => ['Dr Pocket · Feedback', r.range_label, c.headline || '', c.overview || '',
+    ...[['Going well', c.going_well], ['Harder', c.harder], ['Patterns', c.patterns]].flatMap(([t, a]) => (a?.length ? [t, ...a.map((it) => `- ${it.text}`)] : [])),
+    ...(c.suggestions?.length ? ['Ideas to try', ...c.suggestions.map((it) => `- ${it.text}${it.why ? ` (${it.why})` : ''}`)] : []),
+    ...(c.to_track?.length ? ['Worth tracking', ...c.to_track.map((q) => `- ${q}`)] : []),
+    ...(c.ask_clinician?.length ? ['Ask your doctor or physio', ...c.ask_clinician.map((q) => `- ${q}`)] : []),
+    'Written by Claude (Anthropic) from your own entries. Not medical advice.'].filter(Boolean).join('\n');
+  shell({
+    back: '#/reports', tab: 'reports',
+    body: `
+      <div class="print-only">${lockup(28)}</div>
+      <p class="eyebrow">Feedback for you</p>
+      <h1 class="h1">${esc(c.headline || r.range_label)}</h1>
+      <p class="muted small">${esc(r.range_label)} · ${esc(r.range_from ? fmtDate(r.range_from) : 'the beginning')} to ${esc(fmtDate(r.range_to))} · Created ${esc(fmtDate(r.created_at))}</p>
+      ${items('Mention to your doctor soon', c.urgent, 'alert', 'info')}
+      ${c.overview ? `<section class="card rsec"><div class="card-h"><h3>${icon('sparkle')} How it went</h3></div><p class="pre">${esc(c.overview)}</p></section>` : ''}
+      <div class="stats">
+        <div class="stat"><span><small>Entries</small><b>${s.entries ?? '—'}</b></span></div>
+        <div class="stat"><span><small>Check-ins</small><b>${s.checkins ?? 0}</b></span></div>
+        <div class="stat"><span><small>Recorded pain</small><b>${s.pain_n ? `${s.pain_min}–${s.pain_max}` : '—'}</b>${s.pain_n ? '/10' : ''}</span></div>
+      </div>
+      ${weeklyChart(s.pain_weekly)}
+      ${items('Going well', c.going_well, 'good')}
+      ${items('Harder', c.harder, 'bad')}
+      ${items('Patterns in what you recorded', c.patterns)}
+      ${c.suggestions?.length ? `<section class="card rsec"><div class="card-h"><h3>Ideas to try</h3></div><ul class="plain">${c.suggestions.map((it) => `<li><b>${esc(it.text)}</b>${it.why ? `<br><span class="small muted">${esc(it.why)}</span>` : ''} ${src(it.refs)}</li>`).join('')}</ul></section>` : ''}
+      ${c.to_track?.length ? `<section class="card rsec"><div class="card-h"><h3>Worth tracking</h3></div><ul class="plain">${c.to_track.map((q) => `<li>${esc(q)}</li>`).join('')}</ul></section>` : ''}
+      ${c.ask_clinician?.length ? `<section class="card rsec"><div class="card-h"><h3>Ask your doctor or physio</h3></div><ul class="plain">${c.ask_clinician.map((q) => `<li>${esc(q)}</li>`).join('')}</ul></section>` : ''}
+      ${c.gaps?.length ? `<section class="card rsec"><div class="card-h"><h3>Not recorded</h3></div><ul class="plain muted">${c.gaps.map((q) => `<li>${esc(q)}</li>`).join('')}</ul></section>` : ''}
+      <p class="small muted">Written by Claude, Anthropic’s AI, from your own entries. Dates link to them. Ideas are general, not medical advice; check with your doctor or physio before changing treatment.</p>
+      <a class="btn big wide no-print" href="#/reports?kind=clinician${r.problem_id ? `&p=${r.problem_id}` : ''}">${icon('report')} Make a summary for my doctor</a>
+      <div class="row-btns no-print">
+        <button class="btn big" id="copy">${icon('copy')} Copy</button>
+        <button class="btn big" id="pdf">${icon('download')} PDF</button>
+      </div>
+      <button class="btn danger wide no-print" id="del">${icon('trash')} Delete this feedback</button>`,
+  });
+  $('#pdf').onclick = () => window.print();
+  $('#copy').onclick = async () => { try { await navigator.clipboard.writeText(plainText()); toast('Copied'); } catch { toast('Could not copy'); } };
+  $('#del').onclick = async () => { if (!confirm('Delete this feedback? Your entries stay.')) return; await reports.remove(r.id).catch(() => {}); go('#/reports'); };
+}
+
+/* ---------- evening reminder (web push) ---------- */
+const b64ToBytes = (b) => { const s = atob((b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, (ch) => ch.charCodeAt(0)); };
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+async function pushState() {
+  if (!pushSupported()) return 'unsupported';
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  return sub ? 'on' : (Notification.permission === 'denied' ? 'blocked' : 'off');
+}
+async function pushOn() {
+  if (await Notification.requestPermission() !== 'granted') throw new Error('Notifications are blocked. Allow them for Dr Pocket in your phone’s Settings, then try again.');
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) });
+  const j = sub.toJSON();
+  const { error } = await sb.from('push_subscriptions').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Africa/Johannesburg' }, { onConflict: 'endpoint' });
+  if (error) { await sub.unsubscribe(); throw error; }
+}
+async function pushOff() {
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) { await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
+}
+
 /* ---------- settings ---------- */
 function renderSettings() {
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -847,6 +1009,10 @@ function renderSettings() {
       <section class="card stack"><div class="card-h"><h3>Appearance</h3></div>
         <div class="modes" role="radiogroup" aria-label="Appearance">${MODES.map((m) => `<button type="button" role="radio" class="mode" data-m="${m.id}" aria-checked="${m.id === cur}">${icon(m.icon)}<span><b>${m.name}${m.id === 'light' ? ' <span class="hint">default</span>' : ''}</b><small>${m.line}</small></span><i class="radio"></i></button>`).join('')}</div>
       </section>
+      <section class="card stack"><div class="card-h"><h3>Evening reminder</h3><span class="hint">21:00</span></div>
+        <p class="small">Every evening at 21:00, a notification with a quick summary of your day that opens your end-of-day check-in. It only counts what you recorded; nothing goes to an AI service.</p>
+        <p class="small muted" id="push-note"></p>
+        <button class="btn" id="push" hidden></button></section>
       <section class="card stack"><div class="card-h"><h3>Account</h3></div>
         <p class="small acct">${icon('user')} ${esc(session.user.email)}</p>
         <div class="row-btns"><a class="btn" href="#/password">Change password</a><button class="btn" id="out">Sign out</button></div></section>
@@ -859,6 +1025,21 @@ function renderSettings() {
         <p class="small">Your journal is stored in your Dr Pocket account and only you can see it. Insights are worked out on your device. Your entries are sent to an AI service only when you create a doctor summary and tick the box that agrees to it.</p>
         <button class="btn danger" id="del">Delete my account and everything in it</button></section>`,
   });
+  const paintPush = async () => {
+    const st = await pushState().catch(() => 'unsupported');
+    const btn = $('#push'); const note = $('#push-note'); if (!btn) return;
+    btn.hidden = st === 'unsupported';
+    btn.textContent = st === 'on' ? 'Turn off the reminder' : 'Turn on the reminder';
+    btn.className = st === 'on' ? 'btn' : 'btn primary';
+    note.textContent = st === 'on' ? 'On for this device.' : st === 'blocked' ? 'Notifications are blocked for Dr Pocket. Allow them in your phone’s Settings, then come back.'
+      : st === 'unsupported' ? (ios && !standalone ? 'On iPhone, add Dr Pocket to your Home Screen first (Share → Add to Home Screen), then open it from there and turn this on.' : 'This browser cannot show notifications.') : '';
+    btn.onclick = async () => {
+      busy(btn, true, st === 'on' ? 'Turning off…' : 'Turning on…');
+      try { if (st === 'on') { await pushOff(); toast('Reminder off'); } else { await pushOn(); toast('Reminder on: 21:00 every evening'); } } catch (e) { toast(errMsg(e)); }
+      busy(btn, false); paintPush();
+    };
+  };
+  paintPush();
   $$('.mode').forEach((b) => { b.onclick = () => { applyMode(b.dataset.m); $$('.mode').forEach((x) => x.setAttribute('aria-checked', String(x === b))); }; });
   $('#out').onclick = async () => { await auth.signOut(); go('#/login'); };
   $('#del').onclick = async () => {
@@ -885,6 +1066,7 @@ async function route() {
       case 'r': return await renderReport(parts[1]);
       case 'settings': case 'account': case 'look': return renderSettings();
       case 'password': return renderPassword();
+      case 'checkin': return await renderCheckin();
       default: return await renderHome();
     }
   } catch (e) {
