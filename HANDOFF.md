@@ -98,8 +98,17 @@ exercise, use it on the phone like Remus, and draw a progress report over a chos
   `_shared.js`) and saves the result plus computed stats (counts, first/last pain, weekly average pain) to `reports`.
   Ranges: 7 days, 1, 3, 6, 12 months, everything, custom dates; per problem, general, or all problems.
   Notes themselves never call Claude (cost is only when a report is drawn).
-- **Phone app**: `public/manifest.webmanifest` (start `/health/`), `public/sw.js` (caches no app code, only
-  `offline.html`, as in Remus), icons in `public/icons/`. iPhone: Safari → Share → Add to Home Screen.
+- **Phone app**: one manifest per look (`public/manifest-<look>.webmanifest`, start `/health/`), `public/sw.js`
+  (caches no app code, only `offline.html`, as in Remus). iPhone: Safari → Share → Add to Home Screen.
+- **Six looks** (`src/health/themes.js`, `[data-skin]` blocks at the end of `health.css`): Clinic, Midnight, Paper,
+  Sport, Calm, Mono, each with its own icon set in `public/icons/<look>-{180,192,512,maskable}.png`. Chosen under
+  Me → Look and icon; kept in localStorage (painted before load by the script in `health/index.html`, keep the ids
+  in step) and in the user's Supabase `user_metadata.skin` so it follows them to other devices. iOS keeps the old
+  home-screen icon until the app is removed and added again.
+- **Bottom tabs** on every signed-in page: Home, Note (+), Exercise, Report, Me.
+- **Timeline**: today open, earlier days folded to one summary line; search box and a Day picker.
+  A note saved within 15 minutes of the last note on the same problem (time not changed by hand) is added to
+  that note instead of making a new entry (asked for 16 Nov, after a note and its pain score became two entries).
 - **Tested** with Playwright at iPhone 13 size against the real Supabase project and a fake Anthropic endpoint:
   sign in, create a problem, notes with pain and a back-dated time, photo upload and thumbnail, exercise, the
   report, account deletion. The sandbox needed `lpdvppqtpatbzvrrgdnr.supabase.co` allowed (done) and

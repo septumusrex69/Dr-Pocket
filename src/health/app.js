@@ -4,6 +4,7 @@
 import './health.css';
 import { sb, auth, problems, entries, files, reports } from './db.js';
 import { dictation } from './dictate.js';
+import { SKINS, currentSkin, applySkin } from './themes.js';
 
 const app = document.getElementById('app');
 let session = null;
@@ -54,15 +55,27 @@ const errMsg = (e) => {
   return m;
 };
 
-function shell({ title, back = null, actions = '', body }) {
+const ICON = {
+  home: '<path d="M12 3 2 11h3v9h6v-6h2v6h6v-9h3z"/>',
+  add: '<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/>',
+  run: '<path d="M13.5 5.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM9.8 8.9 7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3A7.3 7.3 0 0 0 19 13v-2a5.1 5.1 0 0 1-4.4-2.5l-1-1.6a2.1 2.1 0 0 0-2.6-.8L6 8.3V13h2V9.6z"/>',
+  report: '<path d="M4 20h16v2H4zM6 10h3v8H6zm5-6h3v14h-3zm5 9h3v5h-3z"/>',
+  me: '<path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5Z"/>',
+};
+const svgIcon = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
+
+function shell({ title, back = null, actions = '', body, tab = null }) {
   stopDictation.forEach((s) => s.stop()); stopDictation = [];
+  const tabs = [['home', '#/', 'Home'], ['add', '#/add', 'Note'], ['run', '#/exercise', 'Exercise'], ['report', '#/report', 'Report'], ['me', '#/account', 'Me']];
   app.innerHTML = `
     <header class="bar">
-      ${back ? `<a class="back" href="${back}" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg></a>` : '<span class="logo" aria-hidden="true">+</span>'}
+      ${back ? `<a class="back" href="${back}" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg></a>` : '<span class="logo" aria-hidden="true"></span>'}
       <h1>${esc(title)}</h1>
       <div class="bar-a">${actions}</div>
     </header>
-    <main class="page">${body}</main>`;
+    <main class="page">${body}</main>
+    ${session ? `<nav class="tabs" aria-label="Main">${tabs.map(([k, href, label]) => `<a href="${href}" class="${k === 'add' ? 'tab-add' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${svgIcon(k)}<span>${label}</span></a>`).join('')}</nav>` : ''}`;
+  document.body.classList.toggle('has-tabs', !!session);
   window.scrollTo(0, 0);
 }
 
@@ -114,7 +127,9 @@ function whenPicker(host) {
     inp.hidden = false; inp.value = localInput(); e.target.hidden = true;
     host.querySelector('.when-now').textContent = 'as set here:';
   };
-  return () => (inp.hidden || !inp.value ? new Date().toISOString() : new Date(inp.value).toISOString());
+  const get = () => (inp.hidden || !inp.value ? new Date().toISOString() : new Date(inp.value).toISOString());
+  get.custom = () => !inp.hidden && !!inp.value;
+  return get;
 }
 
 /* ---------- sign in ---------- */
@@ -188,26 +203,41 @@ function renderPassword() {
 
 /* ---------- home: my problems ---------- */
 async function renderHome() {
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   shell({
-    title: 'My health',
-    actions: `<a class="icon-btn" href="#/account" aria-label="Account"><svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5Z"/></svg></a>`,
+    title: 'My health', tab: 'home',
     body: `
-      <div class="quick">
-        <a class="btn primary big" href="#/problem/new">+ New problem</a>
-        <a class="btn big" href="#/exercise">Log exercise</a>
+      <section class="hero">
+        <div class="hero-date">${esc(new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' }))}</div>
+        <div class="hero-hi">${hello}</div>
+        <div class="hero-today" id="today">&nbsp;</div>
+      </section>
+      <div class="quick tiles">
+        <a class="tile t1" href="#/add">${svgIcon('add')}<b>Add a note</b><span>Type or dictate</span></a>
+        <a class="tile t2" href="#/exercise">${svgIcon('run')}<b>Log exercise</b><span>Sets, reps, minutes</span></a>
       </div>
-      <h2 class="sec">Problems</h2>
+      <div class="row sec-row"><h2 class="sec">Problems</h2><a class="link small" href="#/problem/new">+ New problem</a></div>
       <ul class="plist" id="list"><li class="muted">Loading…</li></ul>
       <a class="card general" href="#/p/none"><b>General notes and exercise</b><span class="muted small">Things not tied to one problem</span></a>
-      <a class="btn wide" href="#/report">Draw a progress report</a>
+      <a class="btn wide" href="#/report">${svgIcon('report')} Draw a progress report</a>
       <p class="center small"><a href="/">Open the 3D body</a></p>`,
   });
   try {
-    const list = await problems.list();
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const [list, today] = await Promise.all([problems.list(), entries.list({ from: start.toISOString(), limit: 200 })]);
+    const t = $('#today');
+    if (t) {
+      const ex = today.filter((e) => e.kind === 'exercise').length;
+      const pains = today.filter((e) => e.pain != null);
+      t.textContent = today.length
+        ? `Today: ${plural(today.length - ex, 'note')} · ${plural(ex, 'exercise')}${pains.length ? ` · pain ${pains[0].pain}/10` : ''}`
+        : 'Nothing logged yet today.';
+    }
     const ul = $('#list');
     if (!ul) return;
     if (!list.length) {
-      ul.innerHTML = `<li class="empty card"><b>Start with your first problem</b><span class="muted">For example "Left shoulder pain" or "Lower back after the fall". Then add notes, X-rays and exercise to it as things happen.</span></li>`;
+      ul.innerHTML = `<li class="empty card"><b>Start with your first problem</b><span class="muted">For example "Left shoulder pain" or "Lower back after the fall". Then add notes, X-rays and exercise to it as things happen.</span><a class="btn primary" href="#/problem/new">+ New problem</a></li>`;
       return;
     }
     const order = { active: 0, improving: 1, resolved: 2 };
@@ -220,6 +250,16 @@ async function renderHome() {
   } catch (e) {
     $('#list').innerHTML = `<li class="err">${esc(errMsg(e))}</li>`;
   }
+}
+
+/* ---------- "Note" tab: pick where the note goes ---------- */
+async function renderAdd() {
+  shell({ title: 'Add a note', tab: 'add', body: '<p class="muted">Which problem is this about?</p><ul class="plist" id="list"><li class="muted">Loading…</li></ul>' });
+  const list = (await problems.list()).filter((p) => p.status !== 'resolved');
+  if (list.length === 1) return go(`#/p/${list[0].id}?add=1`);
+  $('#list').innerHTML = list.map((p) => `<li><a class="card prob" href="#/p/${p.id}?add=1"><b>${esc(p.title)}</b><span class="muted small">${esc(where(p))}</span></a></li>`).join('')
+    + '<li><a class="card prob" href="#/p/none?add=1"><b>General</b><span class="muted small">Not about one problem</span></a></li>'
+    + '<li><a class="btn wide" href="#/problem/new">+ Something new</a></li>';
 }
 
 /* ---------- new / edit a problem ---------- */
@@ -332,13 +372,51 @@ async function renderProblem(id) {
     busy(btn, true, fl.length ? 'Uploading…' : 'Saving…');
     try {
       const at = when();
-      const e = await entries.create({ problem_id: general ? null : id, kind: 'note', body: text, pain: pv, at });
+      // Saved within 15 minutes of your last note here? Then it belongs to that note: one entry, not two.
+      let e = null;
+      if (!when.custom()) {
+        const [last] = await entries.list({ problemId: id, kind: 'note', limit: 1 });
+        if (last && Date.now() - new Date(last.at) < 15 * 60e3) {
+          e = await entries.update(last.id, { body: [last.body, text].filter(Boolean).join('\n'), pain: pv ?? last.pain });
+          toast(`Added to your ${fmtTime(last.at)} note`);
+        }
+      }
+      if (!e) { e = await entries.create({ problem_id: general ? null : id, kind: 'note', body: text, pain: pv, at }); toast('Saved'); }
       for (const f of fl) await files.upload({ uid: session.user.id, problemId: general ? null : id, entryId: e.id, file: f, at });
-      toast('Saved');
       renderProblem(id);
     } catch (err) { busy(btn, false); $('#err').textContent = errMsg(err); }
   };
+  if (new URLSearchParams(location.hash.split('?')[1] || '').get('add')) body.focus();
   await paintTimeline(id);
+}
+
+const dayKey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+
+function entryHtml(e, urls) {
+  return `<li class="ent ${e.kind}" data-id="${e.id}">
+    <div class="ent-h"><span class="time">${fmtTime(e.at)}</span>
+      ${e.kind === 'exercise' ? '<span class="chip ex">Exercise</span>' : ''}
+      ${e.pain != null ? `<span class="chip pain-c" style="--p:${e.pain}">Pain ${e.pain}/10</span>` : ''}
+      <span class="ent-a"><button class="link small" data-act="edit">Edit</button><button class="link small" data-act="del">Delete</button></span></div>
+    ${exerciseLine(e.exercise)}
+    ${e.body ? `<p class="pre">${esc(e.body)}</p>` : ''}
+    ${(e.files || []).length ? `<div class="thumbs">${e.files.map((f) => {
+      const u = urls[f.path];
+      return /^image\//.test(f.mime) && u
+        ? `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(f.name)}" loading="lazy"></a>`
+        : `<a class="filechip" href="${esc(u || '#')}" target="_blank" rel="noopener">${esc(f.name || 'File')}</a>`;
+    }).join('')}</div>` : ''}
+  </li>`;
+}
+
+// One fold per day: today open, earlier days closed with a one-line summary you can tap open.
+function daySummary(items) {
+  const ex = items.filter((e) => e.kind === 'exercise');
+  const pains = items.filter((e) => e.pain != null).map((e) => e.pain);
+  const bits = [plural(items.length, 'entry').replace('entrys', 'entries')];
+  if (pains.length) bits.push(`pain ${Math.min(...pains)}${Math.max(...pains) !== Math.min(...pains) ? `–${Math.max(...pains)}` : ''}`);
+  if (ex.length) bits.push(ex.map((e) => e.exercise?.name || 'exercise').slice(0, 2).join(', '));
+  return bits.join(' · ');
 }
 
 async function paintTimeline(id) {
@@ -348,42 +426,55 @@ async function paintTimeline(id) {
   if (!$('#tl')) return;
   $('#spark').innerHTML = sparkline(list);
   if (!list.length) { tl.innerHTML = '<p class="muted">Nothing yet. Your first note will appear here with its date and time.</p>'; return; }
-  const allFiles = list.flatMap((e) => e.files || []);
-  const urls = await files.urls(allFiles.map((f) => f.path)).catch(() => ({}));
-  let day = '';
-  const html = [];
-  for (const e of list) {
-    const d = dayLabel(e.at);
-    if (d !== day) { if (day) html.push('</ol>'); html.push(`<h3 class="day">${esc(d)}</h3><ol class="tl">`); day = d; }
-    html.push(`<li class="ent ${e.kind}" data-id="${e.id}">
-      <div class="ent-h"><span class="time">${fmtTime(e.at)}</span>
-        ${e.kind === 'exercise' ? '<span class="chip ex">Exercise</span>' : ''}
-        ${e.pain != null ? `<span class="chip pain-c" style="--p:${e.pain}">Pain ${e.pain}/10</span>` : ''}
-        <span class="ent-a"><button class="link small" data-act="edit">Edit</button><button class="link small" data-act="del">Delete</button></span></div>
-      ${exerciseLine(e.exercise)}
-      ${e.body ? `<p class="pre">${esc(e.body)}</p>` : ''}
-      ${(e.files || []).length ? `<div class="thumbs">${e.files.map((f) => {
-        const u = urls[f.path];
-        return /^image\//.test(f.mime) && u
-          ? `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(f.name)}" loading="lazy"></a>`
-          : `<a class="filechip" href="${esc(u || '#')}" target="_blank" rel="noopener">${esc(f.name || 'File')}</a>`;
-      }).join('')}</div>` : ''}
-    </li>`);
-  }
-  html.push('</ol>');
-  tl.innerHTML = html.join('');
-  $$('.ent [data-act]', tl).forEach((b) => {
+  const urls = await files.urls(list.flatMap((e) => e.files || []).map((f) => f.path)).catch(() => ({}));
+  const today = dayKey(new Date());
+
+  tl.innerHTML = `
+    <div class="tl-tools">
+      <input type="search" id="tl-q" placeholder="Search your notes" aria-label="Search your notes">
+      <label class="btn small datebtn">${'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h2v2h6V2h2v2h3v18H4V4h3zm11 8H6v10h12z"/></svg>'}<span>Day</span><input type="date" id="tl-d" aria-label="Go to a day"></label>
+    </div>
+    <p class="muted small" id="tl-note" hidden></p>
+    <div id="tl-days"></div>`;
+  const q = $('#tl-q'); const dpick = $('#tl-d'); const note = $('#tl-note');
+
+  const paint = () => {
+    const text = q.value.trim().toLowerCase();
+    const day = dpick.value;
+    let shown = list;
+    if (text) shown = shown.filter((e) => `${e.body} ${e.exercise?.name || ''}`.toLowerCase().includes(text));
+    if (day) shown = shown.filter((e) => dayKey(e.at) === day);
+    const groups = [];
+    for (const e of shown) {
+      const k = dayKey(e.at);
+      if (!groups.length || groups[groups.length - 1].k !== k) groups.push({ k, items: [] });
+      groups[groups.length - 1].items.push(e);
+    }
+    note.hidden = !(text || day);
+    note.innerHTML = text || day ? `${plural(shown.length, 'match').replace('matchs', 'matches')}${day ? ` on ${esc(fmtDate(`${day}T12:00`))}` : ''} · <button class="link small" id="tl-clear">Show everything</button>` : '';
+    $('#tl-clear')?.addEventListener('click', () => { q.value = ''; dpick.value = ''; paint(); });
+    $('#tl-days').innerHTML = groups.length ? groups.map((g) => `
+      <details class="day-fold" ${g.k === today || text || day ? 'open' : ''}>
+        <summary><span class="day-l">${esc(dayLabel(g.items[0].at))}</span><span class="day-s">${esc(daySummary(g.items))}</span></summary>
+        <ol class="tl">${g.items.map((e) => entryHtml(e, urls)).join('')}</ol>
+      </details>`).join('') : '<p class="muted">Nothing matches.</p>';
+  };
+  q.oninput = paint;
+  dpick.onchange = paint;
+  paint();
+
+  $('#tl-days').onclick = async (ev) => {
+    const b = ev.target.closest('[data-act]');
+    if (!b) return;
     const li = b.closest('.ent'); const e = list.find((x) => x.id === li.dataset.id);
-    b.onclick = async () => {
-      if (b.dataset.act === 'del') {
-        if (!confirm('Delete this entry and its files?')) return;
-        try { await entries.remove(e.id); li.remove(); toast('Deleted'); } catch (err) { toast(errMsg(err)); }
-        return;
-      }
-      if (e.kind === 'exercise') return go(`#/exercise?e=${e.id}`);
-      editInline(li, e, id);
-    };
-  });
+    if (b.dataset.act === 'del') {
+      if (!confirm('Delete this entry and its files?')) return;
+      try { await entries.remove(e.id); list.splice(list.indexOf(e), 1); paint(); toast('Deleted'); } catch (err) { toast(errMsg(err)); }
+      return;
+    }
+    if (e.kind === 'exercise') return go(`#/exercise?e=${e.id}`);
+    editInline(li, e, id);
+  };
 }
 
 function editInline(li, e, id) {
@@ -416,7 +507,7 @@ async function renderExercise(params) {
   const pid = existing ? (existing.problem_id || 'none') : (params.get('p') || 'none');
   const back = pid !== 'none' || existing ? `#/p/${pid}` : '#/';
   shell({
-    title: editing ? 'Edit exercise' : 'Log exercise', back,
+    title: editing ? 'Edit exercise' : 'Log exercise', back, tab: editing ? null : 'run',
     body: `<section class="card"><form id="f" class="stack">
       <label>For which problem?<select name="problem"><option value="none">General (not one problem)</option>
         ${list.filter((p) => p.status !== 'resolved' || p.id === pid).map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select></label>
@@ -471,7 +562,7 @@ async function renderReportForm(params) {
   const pid = params.get('p') || '';
   const [list, past] = await Promise.all([problems.list().catch(() => []), reports.list(pid && pid !== 'none' ? pid : null).catch(() => [])]);
   shell({
-    title: 'Progress report', back: pid ? `#/p/${pid}` : '#/',
+    title: 'Progress report', back: pid ? `#/p/${pid}` : '#/', tab: 'report',
     body: `<section class="card"><form id="f" class="stack">
       <label>About<select name="problem">
         <option value="">All my problems</option>
@@ -586,8 +677,9 @@ function renderAccount() {
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   shell({
-    title: 'Account', back: '#/',
+    title: 'Me', tab: 'me',
     body: `
+      <a class="card look-link" href="#/look"><div class="row"><b>Look and icon</b><span class="chip">${esc(SKINS.find((k) => k.id === currentSkin())?.name || '')}</span></div><span class="muted small">Six styles, each with its own home-screen icon</span></a>
       <section class="card stack"><h2>Signed in</h2><p>${esc(session.user.email)}</p>
         <a class="btn" href="#/password">Change password</a>
         <button class="btn" id="out">Sign out</button></section>
@@ -608,6 +700,28 @@ function renderAccount() {
   };
 }
 
+/* ---------- look: six styles, each with its own icon ---------- */
+function renderLook() {
+  const cur = currentSkin();
+  shell({
+    title: 'Look and icon', back: '#/account', tab: 'me',
+    body: `<p class="muted small">Tap one to try it. It changes straight away, on this phone and on your other devices after you sign in.</p>
+      <ul class="looks">${SKINS.map((k) => `<li><button class="look" data-id="${k.id}" aria-pressed="${k.id === cur}">
+        <img src="/icons/${k.id}-180.png" alt="" width="56" height="56">
+        <span class="look-t"><b>${esc(k.name)}</b><span>${esc(k.line)}</span></span>
+      </button></li>`).join('')}</ul>
+      <section class="card stack"><h2>Change the icon on your home screen</h2>
+        <p class="small">Your phone keeps the icon it had when you added Dr Pocket. To get the new one: press and hold the Dr Pocket icon, tap <b>Remove App</b> (or <b>Delete Bookmark</b>), then open this page in Safari and tap <b>Share → Add to Home Screen</b> again. Your notes stay in your account.</p></section>`,
+  });
+  $$('.look').forEach((b) => {
+    b.onclick = () => {
+      applySkin(b.dataset.id);
+      $$('.look').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      sb.auth.updateUser({ data: { skin: b.dataset.id } }).catch(() => {});
+    };
+  });
+}
+
 /* ---------- routing ---------- */
 async function route() {
   const [path, query = ''] = location.hash.replace(/^#/, '').split('?');
@@ -623,6 +737,8 @@ async function route() {
       case 'report': return await renderReportForm(params);
       case 'r': return await renderReport(parts[1]);
       case 'account': return renderAccount();
+      case 'look': return renderLook();
+      case 'add': return await renderAdd();
       case 'password': return renderPassword();
       default: return await renderHome();
     }
@@ -635,9 +751,13 @@ let deferredInstall = null;
 addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
+applySkin(currentSkin());
 sb.auth.onAuthStateChange((event, s) => {
   const was = !!session;
   session = s;
+  // A look chosen on another device follows you after you sign in.
+  const synced = s?.user?.user_metadata?.skin;
+  if (synced && synced !== currentSkin() && SKINS.some((k) => k.id === synced)) applySkin(synced);
   if (event === 'PASSWORD_RECOVERY') return go('#/password');
   if (was !== !!s && event !== 'INITIAL_SESSION') route();
 });

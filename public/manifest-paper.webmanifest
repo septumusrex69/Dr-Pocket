@@ -1,0 +1,54 @@
+{
+  "name": "Dr Pocket · My health",
+  "short_name": "Dr Pocket",
+  "description": "Notes, X-rays, exercise and progress reports for each health problem.",
+  "id": "/health/",
+  "start_url": "/health/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4EDE0",
+  "theme_color": "#F4EDE0",
+  "icons": [
+    {
+      "src": "/icons/paper-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/paper-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/paper-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add a note",
+      "url": "/health/#/add",
+      "icons": [
+        {
+          "src": "/icons/paper-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Log exercise",
+      "url": "/health/#/exercise",
+      "icons": [
+        {
+          "src": "/icons/paper-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

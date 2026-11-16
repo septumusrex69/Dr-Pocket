@@ -6,17 +6,30 @@
 <title>My health · Dr Pocket</title>
 <meta name="description" content="A private journal for each health problem: dated notes, dictation, X-rays and scans, exercise, and progress reports.">
 <meta name="theme-color" content="#0A7A66">
-<!-- Installable: "Add to Home Screen" opens My health full screen with its own icon, like Remus. -->
-<link rel="manifest" href="/manifest.webmanifest">
+<!-- Installable: "Add to Home Screen" opens My health full screen with its own icon, like Remus.
+     The icon, manifest and colours follow the look chosen in the app (src/health/themes.js);
+     this runs before first paint so there is no flash of the wrong look. Keep the ids in step. -->
+<link rel="manifest" href="/manifest-clinic.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Dr Pocket">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/clinic-192.png">
+<link rel="apple-touch-icon" href="/icons/clinic-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script>
+  (function () {
+    var skins = { clinic: '#0A7A66', midnight: '#05080A', paper: '#F4EDE0', sport: '#111111', calm: '#C9B8F0', mono: '#FFFFFF' };
+    var id = 'clinic';
+    try { var v = localStorage.getItem('drpocket.skin'); if (v && skins[v]) id = v; } catch (e) {}
+    document.documentElement.setAttribute('data-skin', id);
+    document.querySelector('meta[name="theme-color"]').setAttribute('content', skins[id]);
+    document.querySelector('link[rel="apple-touch-icon"]').setAttribute('href', '/icons/' + id + '-180.png');
+    document.querySelector('link[rel="manifest"]').setAttribute('href', '/manifest-' + id + '.webmanifest');
+    document.querySelector('link[rel="icon"]').setAttribute('href', '/icons/' + id + '-192.png');
+  })();
+</script>
 </head>
 <body>
 <div id="app"><p style="padding:24px;color:#53655E">Loading…</p></div>
