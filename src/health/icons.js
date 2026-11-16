@@ -40,7 +40,11 @@ const P = {
 };
 export const icon = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ''}</svg>`;
 
-// The four-part folded cross: the approved vector from the logo pack (public/brand/), embedded as-is.
-// Its centre and the gaps between the petals are transparent, so the background shows through.
-export const mark = (size = 28) => `<img class="mark" src="/brand/dr-pocket-symbol.svg" alt="" width="${Math.round(size * 255 / 215)}" height="${size}">`;
-export const lockup = (size = 26) => `<span class="lockup">${mark(size)}<span class="wordmark">Dr Pocket</span></span>`;
+// The Dr Pocket logo: the vector master in public/brand/ (rebuilt from the approved artwork, 16 Nov 2026).
+// The gaps between the petals are transparent, so the background shows through.
+export const mark = (size = 28) => `<img class="mark" src="/brand/dr-pocket-symbol.svg" alt="" width="${Math.round(size * 856.8 / 697.6)}" height="${size}">`;
+// Symbol + wordmark (outlined Montserrat Bold Italic). Navy text on light screens, white text in dark mode.
+export const lockup = (size = 26) => {
+  const w = Math.round(size * 3090.5 / 717.6);
+  return `<span class="lockup"><img class="logo-on-light" src="/brand/dr-pocket-horizontal.svg" alt="Dr Pocket" width="${w}" height="${size}"><img class="logo-on-dark" src="/brand/dr-pocket-horizontal-white-text.svg" alt="Dr Pocket" width="${w}" height="${size}"></span>`;
+};

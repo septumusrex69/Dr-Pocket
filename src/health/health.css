@@ -51,7 +51,11 @@ a{color:var(--accent)}
   background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:var(--border) solid var(--line)}
 .top-c{justify-self:center;text-decoration:none}
 .top-r{justify-self:end}
-.lockup{display:inline-flex;align-items:center;gap:7px}
+.lockup{display:inline-flex;align-items:center}
+.lockup img{display:block;height:auto}
+.logo-on-dark{display:none!important}
+:root[data-appearance="dark"] .logo-on-light{display:none!important}
+:root[data-appearance="dark"] .logo-on-dark{display:block!important}
 .wordmark{font:italic 600 1.12rem/1 var(--f);color:var(--navy);letter-spacing:-.01em}
 :root[data-appearance="dark"] .wordmark{color:#fff}
 .icon-btn{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;color:var(--ink);background:transparent;border:0;cursor:pointer;position:relative}

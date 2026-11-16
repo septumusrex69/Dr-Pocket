@@ -115,11 +115,12 @@ exercise, use it on the phone like Remus, and draw a progress report over a chos
   are numbered E1… and every item in the JSON cites them; `content.refs` maps ids to entry id + date so the page links
   each point back to its entry. Sections: reason for visit, overview, chronology, changes, limitations, activities and
   exercise, triggers and relief, questions, urgent, not recorded. Export PDF (print stylesheet), Copy, Share.
-- **Logo**: the user's logo pack is in `public/brand/` (symbol, horizontal, white-text horizontal, app icon, tokens,
-  its README). Its README says to embed the files as-is and not to regenerate the logo; the app shows
-  `dr-pocket-symbol.svg` unchanged (`mark()` in `icons.js`) beside a Montserrat SemiBold Italic HTML wordmark (the
-  pack's own wordmark uses a stand-in font). Phone icons are made from `dr-pocket-app-icon.svg`: 192/512 as supplied;
-  180 (iPhone) with square corners, since iOS rounds them; maskable with the symbol inside Android's safe zone.
+- **Logo** (16 Nov, final): `public/brand/` holds the vector master rebuilt from ChatGPT's low-resolution originals
+  (outline measured and rebuilt as clean geometry, ~95% match; transparent gaps; brand colours with fitted gradients
+  and fold shading; wordmark is Montserrat Bold Italic as outlines). Symbol, horizontal (navy / white text / one
+  colour), stacked, app icons, PNGs and its README. The app header uses the horizontal SVGs (white-text version in
+  dark mode), sign-in and favicon use the symbol, phone icons come from the app-icon SVGs. The 3D body page uses it too.
+  The scripts that built it live in the session scratchpad, not the repo.
 - **End of day (16 Nov):** check-in screen `#/checkin` (a `kind='day'` entry, General: 1–5 rating, overall pain,
   sleep hours/quality, energy, mood, words), with a "your day so far" summary worked out on the device. Home shows
   a check-in card. Reminder at 21:00 South African time: Vercel cron `0 19 * * *` → `api/evening.js`, which calls

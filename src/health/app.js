@@ -68,7 +68,7 @@ function shell({ back = null, tab = null, body, foot = '' }) {
   app.innerHTML = `
     <header class="top">
       <div class="top-l">${back ? `<a class="icon-btn" href="${back}" aria-label="Back">${icon('back')}</a>` : ''}</div>
-      <a class="top-c" href="#/" aria-label="Dr Pocket home">${lockup(24)}</a>
+      <a class="top-c" href="#/" aria-label="Dr Pocket home">${lockup(32)}</a>
       <div class="top-r">${session ? `<a class="icon-btn" href="#/settings" aria-label="Settings">${icon('settings')}</a>` : ''}</div>
     </header>
     <main class="page">${body}</main>
