@@ -188,10 +188,12 @@ function tagsOf(e) {
   if (e.files?.length) tags.push(`${icon('image')}${e.files.length}`);
   return tags.map((t) => `<span class="tag">${t}</span>`).join('');
 }
-function entryRow(e, { showProblem = null } = {}) {
-  const d = D(e.at);
-  return `<li><a class="tl-item" href="#/e/${e.id}">
-    <div class="tl-date"><b>${d.getDate()}</b><span>${d.toLocaleDateString('en-ZA', { month: 'short' })}</span><small>${e.time_known === false ? '—' : fmtTime(e.at)}</small></div>
+function entryRow(e, { showProblem = null, showDay = false } = {}) {
+  const time = e.time_known === false ? 'No time' : fmtTime(e.at);
+  const lbl = dayLabel(e.at);
+  const day = showDay ? `<small>${esc(lbl === 'Today' || lbl === 'Yesterday' ? lbl : D(e.at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }))}</small>` : '';
+  return `<li><a class="tl-row" href="#/e/${e.id}">
+    <div class="tl-time">${day}<b class="${e.time_known === false ? 'none' : ''}">${time}</b></div>
     <div class="tl-card">
       ${showProblem ? `<div class="tl-prob">${esc(showProblem)}</div>` : ''}
       <div class="tl-title">${esc(titleOf(e))}</div>
@@ -243,7 +245,7 @@ function timeline(host, list, { problemName = null, filters = true } = {}) {
     host.querySelector('.tl-days').innerHTML = groups.length ? groups.map((g) => `
       <details class="tl-day" ${g.k === today || filtered ? 'open' : ''}>
         <summary><span class="tl-day-l">${esc(dayLabel(g.items[0].at))}</span><span class="tl-day-s">${esc(daySummary(g.items))}</span>${icon('down', 'tl-caret')}</summary>
-        <ol class="tl">${g.items.map((e) => entryRow(e, { showProblem: problemName ? problemName(e) : null })).join('')}</ol>
+        <ol class="tl rows">${g.items.map((e) => entryRow(e, { showProblem: problemName ? problemName(e) : null })).join('')}</ol>
       </details>`).join('') : `<div class="empty">${filtered ? 'Nothing matches.' : 'Nothing recorded yet.'}</div>`;
   };
   q?.addEventListener('input', paint); kind?.addEventListener('change', paint); day?.addEventListener('change', paint);
@@ -356,7 +358,7 @@ async function renderHome() {
       <div class="sec-h"><h2>Active problems</h2><a class="link" href="#/problems">See all</a></div>
       <ul class="cards" id="probs"><li class="empty">Loading…</li></ul>
       <div class="sec-h"><h2>Recent entries</h2><a class="link" href="#/timeline">Timeline</a></div>
-      <ol class="tl" id="recent"></ol>
+      <ol class="tl rows" id="recent"></ol>
       <a class="card link-card" href="#/reports">${icon('report')}<span><b>Doctor summary</b><small>A dated summary for your next appointment</small></span>${icon('chevron')}</a>
       <div class="sec-h"><h2>Tools</h2></div>
       <div class="tools">
@@ -377,7 +379,7 @@ async function renderHome() {
     $('#probs').innerHTML = active.length ? active.map((p) => problemCard(p, byProb(p.id))).join('')
       : `<li class="card empty-card"><b>Start with your first problem</b><span class="muted">For example "Right shoulder" or "Lower back after the fall". Then add notes as things happen.</span><a class="btn primary" href="#/problem/new">${icon('plus')} New problem</a></li>`;
     const names = Object.fromEntries(list.map((p) => [p.id, p.title]));
-    $('#recent').innerHTML = all.slice(0, 3).map((e) => entryRow(e, { showProblem: names[e.problem_id] || 'General' })).join('') || '<li class="empty">Your entries will appear here.</li>';
+    $('#recent').innerHTML = all.slice(0, 3).map((e) => entryRow(e, { showProblem: names[e.problem_id] || 'General', showDay: true })).join('') || '<li class="empty">Your entries will appear here.</li>';
   } catch (e) { $('#probs').innerHTML = `<li class="err">${esc(errMsg(e))}</li>`; }
 }
 
