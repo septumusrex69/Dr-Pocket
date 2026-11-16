@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="m6t" x1=".2" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#6CEAF2"/><stop offset=".5" stop-color="#00C7D9"/><stop offset="1" stop-color="#008FA8"/></linearGradient>
+    <linearGradient id="m6l" x1="0" y1=".3" x2="1" y2=".7"><stop offset="0" stop-color="#1AA6B3"/><stop offset=".55" stop-color="#006F7F"/><stop offset="1" stop-color="#00475A"/></linearGradient>
+    <linearGradient id="m6b" x1=".6" y1="1" x2=".3" y2="0"><stop offset="0" stop-color="#0E2C50"/><stop offset=".55" stop-color="#124A6A"/><stop offset="1" stop-color="#1B7290"/></linearGradient>
+    <linearGradient id="m6r" x1="1" y1=".7" x2="0" y2=".3"><stop offset="0" stop-color="#FF6470"/><stop offset=".5" stop-color="#EF2B3F"/><stop offset="1" stop-color="#B8162C"/></linearGradient>
+    <clipPath id="m6c"><rect x="42" y="4" width="36" height="112" rx="18"/><rect x="4" y="42" width="112" height="36" rx="18"/></clipPath>
+    <mask id="m6m" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120"><rect width="120" height="120" fill="#fff"/><path d="M36 36 84 84M84 36 36 84" stroke="#000" stroke-width="4.5" stroke-linecap="round"/><circle cx="60" cy="60" r="5" fill="#000"/></mask>
+  </defs>
+  <g transform="translate(60 60) skewX(-10) translate(-60 -60)"><g clip-path="url(#m6c)" mask="url(#m6m)">
+    <path d="M0 0H120L60 60z" fill="url(#m6t)"/><path d="M120 0V120L60 60z" fill="url(#m6r)"/>
+    <path d="M0 120H120L60 60z" fill="url(#m6b)"/><path d="M0 0V120L60 60z" fill="url(#m6l)"/>
+  </g></g></svg>

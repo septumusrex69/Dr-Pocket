@@ -1,0 +1,21 @@
+{
+  "name": "Dr Pocket",
+  "short_name": "Dr Pocket",
+  "description": "Your personal health record and symptom journal.",
+  "id": "/health/",
+  "start_url": "/health/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6FAFB",
+  "theme_color": "#FFFFFF",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Add note", "url": "/health/#/add", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Log exercise", "url": "/health/#/exercise", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

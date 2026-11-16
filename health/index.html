@@ -3,36 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>My health · Dr Pocket</title>
-<meta name="description" content="A private journal for each health problem: dated notes, dictation, X-rays and scans, exercise, and progress reports.">
-<meta name="theme-color" content="#0A7A66">
-<!-- Installable: "Add to Home Screen" opens My health full screen with its own icon, like Remus.
-     The icon, manifest and colours follow the look chosen in the app (src/health/themes.js);
-     this runs before first paint so there is no flash of the wrong look. Keep the ids in step. -->
-<link rel="manifest" href="/manifest-clinic.webmanifest">
+<title>Dr Pocket</title>
+<meta name="description" content="Your personal health record and symptom journal: notes, pain, exercise, files and a doctor summary.">
+<meta name="theme-color" content="#FFFFFF">
+<!-- Installable: "Add to Home Screen" opens Dr Pocket full screen with its own icon, like Remus. -->
+<link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Dr Pocket">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/clinic-192.png">
-<link rel="apple-touch-icon" href="/icons/clinic-180.png">
+<link rel="icon" type="image/svg+xml" href="/icons/mark.svg">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;1,600;1,700&display=swap">
 <script>
+  // Settings → Appearance, before first paint (src/health/appearance.js; keep the key in step).
   (function () {
-    var skins = { clinic: '#0A7A66', midnight: '#05080A', paper: '#F4EDE0', sport: '#111111', calm: '#C9B8F0', mono: '#FFFFFF' };
-    var id = 'clinic';
-    try { var v = localStorage.getItem('drpocket.skin'); if (v && skins[v]) id = v; } catch (e) {}
-    document.documentElement.setAttribute('data-skin', id);
-    document.querySelector('meta[name="theme-color"]').setAttribute('content', skins[id]);
-    document.querySelector('link[rel="apple-touch-icon"]').setAttribute('href', '/icons/' + id + '-180.png');
-    document.querySelector('link[rel="manifest"]').setAttribute('href', '/manifest-' + id + '.webmanifest');
-    document.querySelector('link[rel="icon"]').setAttribute('href', '/icons/' + id + '-192.png');
+    var m = 'light';
+    try { var v = localStorage.getItem('drpocket.appearance'); if (/^(light|dark|contrast|system)$/.test(v)) m = v; } catch (e) {}
+    if (m === 'system') m = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-appearance', m);
+    if (m === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#071A2E');
   })();
 </script>
 </head>
 <body>
-<div id="app"><p style="padding:24px;color:#53655E">Loading…</p></div>
+<div id="app"></div>
 <script type="module" src="/src/health/app.js"></script>
 </body>
 </html>

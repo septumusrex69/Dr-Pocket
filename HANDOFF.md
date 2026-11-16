@@ -88,31 +88,42 @@ exercise, use it on the phone like Remus, and draw a progress report over a chos
   `body`, `pain` 0–10, `exercise` jsonb), `files` (private bucket `health`, path `uid/<problem>/<uuid>-name`),
   `reports` (saved report JSON). RLS on every table: owner only. `delete_my_account()` removes the user and,
   through cascades, all rows; the app removes their stored files first (storage cannot be deleted from SQL).
-- **Front end** (`health/index.html`, `src/health/`): vanilla JS like the rest of the site, hash routes.
-  `config.js` holds the project URL and the publishable key (public by design). `db.js` is every read and write.
-  `dictate.js` is a port of Remus's dictation (browser speech recognition: free, en-ZA / af-ZA / en-GB, keeps
-  listening through pauses). Photos are shrunk to 2000 px JPEG before upload; PDFs up to 25 MB.
-- **Progress report** (`api/progress.js`): the page sends its Supabase access token; the function reads the
-  journal as that user (RLS), adds up to 6 earlier entries for comparison and up to 8 images/PDFs (20 MB total) if
-  "look at the files" is ticked, asks Claude Opus 5.5 (effort medium, structured JSON, server-side fallback via
-  `_shared.js`) and saves the result plus computed stats (counts, first/last pain, weekly average pain) to `reports`.
-  Ranges: 7 days, 1, 3, 6, 12 months, everything, custom dates; per problem, general, or all problems.
-  Notes themselves never call Claude (cost is only when a report is drawn).
-- **Phone app**: one manifest per look (`public/manifest-<look>.webmanifest`, start `/health/`), `public/sw.js`
-  (caches no app code, only `offline.html`, as in Remus). iPhone: Safari → Share → Add to Home Screen.
-- **Six looks** (`src/health/themes.js`, `[data-skin]` blocks at the end of `health.css`): Clinic, Midnight, Paper,
-  Sport, Calm, Mono, each with its own icon set in `public/icons/<look>-{180,192,512,maskable}.png`. Chosen under
-  Me → Look and icon; kept in localStorage (painted before load by the script in `health/index.html`, keep the ids
-  in step) and in the user's Supabase `user_metadata.skin` so it follows them to other devices. iOS keeps the old
-  home-screen icon until the app is removed and added again.
-- **Bottom tabs** on every signed-in page: Home, Note (+), Exercise, Report, Me.
-- **Timeline**: today open, earlier days folded to one summary line; search box and a Day picker.
-  A note saved within 15 minutes of the last note on the same problem (time not changed by hand) is added to
-  that note instead of making a new entry (asked for 16 Nov, after a note and its pain score became two entries).
-- **Tested** with Playwright at iPhone 13 size against the real Supabase project and a fake Anthropic endpoint:
-  sign in, create a problem, notes with pain and a back-dated time, photo upload and thumbnail, exercise, the
-  report, account deletion. The sandbox needed `lpdvppqtpatbzvrrgdnr.supabase.co` allowed (done) and
-  `NODE_USE_ENV_PROXY=1` for Node to use the proxy.
+- **Design source of truth:** the user's "Dr Pocket Complete Brand + App Guide" (16 Nov 2026, 13 pages). Rebuilt to it
+  on 16 Nov after the user rejected the earlier look. Key rules: four-part folded cross (turquoise top, teal left,
+  navy bottom, red right) with transparent seams, Montserrat (SemiBold Italic wordmark), palette #0B2342 / #006F7F /
+  #00C7D9 / #EF2B3F / #E6F8F8 / #F6FAFB, red only for critical emphasis, no tagline, Light (default) / Dark / High
+  contrast / System, never invent times or pain scores, charts show recorded data only, doctor summary traceable to
+  dated entries, AI only with explicit consent. The guide also says "no Supabase/login without approval"; that line
+  came from the old handoff, and the user had already asked for phone login, so it was kept (told the user).
+- **Front end** (`health/index.html`, `src/health/`): vanilla JS, hash routes. `app.js` (all screens), `db.js`
+  (every read/write), `icons.js` (line icons + the mark as inline SVG with a transparent centre), `appearance.js`
+  (modes; pre-paint script in `health/index.html` uses the same key), `dictate.js` (Remus's dictation: browser speech,
+  free, en-ZA / af-ZA / en-GB). Navigation: Home | Problems | Add Note | Timeline | Reports; settings (gear) holds
+  Appearance, account, Tools (3D body, scan explanation, shoulder walkthrough) and privacy.
+- **Screens:** Home (greeting, today line, quick Add note / Log exercise, active problems with stats, recent entries,
+  doctor summary, tools). Problem: header, tabs Timeline (stats, 14-day pain trend on a 0–10 axis, timeline) /
+  Insights (descriptive counts only, unknown pain is not zero) / Exercise / Media / Details (archive, delete). Add note:
+  own words + dictation first; "Just now" / "Date and time" / "Date only" (time_known=false, shown as "time not
+  recorded"); pain 0–10 optional; symptom and activity chips; triggers / relief / impact; files. Entry page shows the
+  original words, all fields, recorded-at time and earlier versions. Timeline: today open, earlier days folded, search,
+  filter, day picker. A note saved "just now" within 15 minutes of the last note on the same problem is merged into it.
+- **Schema additions** (`supabase/migrations/0002_structured_entries.sql`, applied): problems.diagnosis
+  (clinician-confirmed, separate), status `archived`; entries.time_known, symptoms[], activity, triggers, relief,
+  impact, updated_at, edits (history kept by a trigger). The 8 entries copied from the user's phone notes (14–16 Nov)
+  have time_known=false: the notes had dates only.
+- **Doctor summary** (`api/progress.js`, route name kept): requires `consent: true` from the page's tick box; entries
+  are numbered E1… and every item in the JSON cites them; `content.refs` maps ids to entry id + date so the page links
+  each point back to its entry. Sections: reason for visit, overview, chronology, changes, limitations, activities and
+  exercise, triggers and relief, questions, urgent, not recorded. Export PDF (print stylesheet), Copy, Share.
+- **Phone app**: `public/manifest.webmanifest` (start `/health/`), `public/sw.js` (caches no app code, only
+  `offline.html`, as in Remus), icons `public/icons/icon-{180,192,512,maskable}.png`, plus `mark.svg` and
+  `mark-512.png` (transparent). iPhone: Safari → Share → Add to Home Screen; remove and re-add to get a new icon.
+- **Tested** with Playwright at iPhone 15 Pro size against the real Supabase project (a throwaway account holding a
+  copy of the user's entries) and a fake Anthropic endpoint: sign in, a 4/10 entry at an explicitly chosen time with
+  text, symptoms, activity and a trigger, entry page, Insights, Exercise, Details, log exercise, global timeline,
+  summary blocked until consent is ticked, summary with source links, all appearance modes, 3D body and shoulder
+  pages still load. The sandbox needs `lpdvppqtpatbzvrrgdnr.supabase.co` allowed (done) and `NODE_USE_ENV_PROXY=1`
+  for Node. The test scripts live in the session scratchpad, not the repo.
 
 **Still to do in the Supabase dashboard (no tool for it here):**
 1. Authentication → URL Configuration: Site URL `https://dr-pocket-two.vercel.app/health/`, and add

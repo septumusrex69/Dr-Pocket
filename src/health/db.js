@@ -62,6 +62,7 @@ export const entries = {
     if (to) q = q.lte('at', to);
     return must(await q);
   },
+  get: async (id) => must(await sb.from('entries').select('*, files(*)').eq('id', id).single()),
   create: async (e) => must(await sb.from('entries').insert(e).select().single()),
   update: async (id, e) => must(await sb.from('entries').update(e).eq('id', id).select().single()),
   async remove(id) {
@@ -105,6 +106,8 @@ export const files = {
       problem_id: problemId || null, entry_id: entryId, path, name: file.name, mime: f.type, size: f.size, at,
     }).select().single());
   },
+  list: async (problemId) => must(await sb.from('files').select('*').eq('problem_id', problemId).order('at', { ascending: false })),
+  async remove(f) { await sb.storage.from(BUCKET).remove([f.path]); must(await sb.from('files').delete().eq('id', f.id)); },
   async urls(paths) {
     if (!paths.length) return {};
     const rows = must(await sb.storage.from(BUCKET).createSignedUrls(paths, 3600));
