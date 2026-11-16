@@ -40,22 +40,7 @@ const P = {
 };
 export const icon = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ''}</svg>`;
 
-// The four-part folded cross. Its centre and seams are transparent, so whatever is behind shows through.
-let n = 0;
-export function mark(size = 28) {
-  const k = `m${(n += 1)}`;
-  return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 120 120" aria-hidden="true">
-  <defs>
-    <linearGradient id="${k}t" x1=".2" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#6CEAF2"/><stop offset=".5" stop-color="#00C7D9"/><stop offset="1" stop-color="#008FA8"/></linearGradient>
-    <linearGradient id="${k}l" x1="0" y1=".3" x2="1" y2=".7"><stop offset="0" stop-color="#1AA6B3"/><stop offset=".55" stop-color="#006F7F"/><stop offset="1" stop-color="#00475A"/></linearGradient>
-    <linearGradient id="${k}b" x1=".6" y1="1" x2=".3" y2="0"><stop offset="0" stop-color="#0E2C50"/><stop offset=".55" stop-color="#124A6A"/><stop offset="1" stop-color="#1B7290"/></linearGradient>
-    <linearGradient id="${k}r" x1="1" y1=".7" x2="0" y2=".3"><stop offset="0" stop-color="#FF6470"/><stop offset=".5" stop-color="#EF2B3F"/><stop offset="1" stop-color="#B8162C"/></linearGradient>
-    <clipPath id="${k}c"><rect x="42" y="4" width="36" height="112" rx="18"/><rect x="4" y="42" width="112" height="36" rx="18"/></clipPath>
-    <mask id="${k}m" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120"><rect width="120" height="120" fill="#fff"/><path d="M36 36 84 84M84 36 36 84" stroke="#000" stroke-width="4.5" stroke-linecap="round"/><circle cx="60" cy="60" r="5" fill="#000"/></mask>
-  </defs>
-  <g transform="translate(60 60) skewX(-10) translate(-60 -60)"><g clip-path="url(#${k}c)" mask="url(#${k}m)">
-    <path d="M0 0H120L60 60z" fill="url(#${k}t)"/><path d="M120 0V120L60 60z" fill="url(#${k}r)"/>
-    <path d="M0 120H120L60 60z" fill="url(#${k}b)"/><path d="M0 0V120L60 60z" fill="url(#${k}l)"/>
-  </g></g></svg>`;
-}
+// The four-part folded cross: the approved vector from the logo pack (public/brand/), embedded as-is.
+// Its centre and the gaps between the petals are transparent, so the background shows through.
+export const mark = (size = 28) => `<img class="mark" src="/brand/dr-pocket-symbol.svg" alt="" width="${Math.round(size * 255 / 215)}" height="${size}">`;
 export const lockup = (size = 26) => `<span class="lockup">${mark(size)}<span class="wordmark">Dr Pocket</span></span>`;

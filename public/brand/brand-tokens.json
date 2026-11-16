@@ -1,0 +1,16 @@
+{
+  "name": "Dr Pocket",
+  "colors": {
+    "navy": "#0B2342",
+    "teal": "#006F7F",
+    "turquoise": "#00C7D9",
+    "red": "#EF2B3F",
+    "mint": "#E6F8F8",
+    "offWhite": "#F6FAFB"
+  },
+  "logo": {
+    "center": "transparent negative space",
+    "symbol": "four individually colored folded petals",
+    "font": "bold oblique sans serif, vector interpretation (not original font outline)"
+  }
+}

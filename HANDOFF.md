@@ -90,7 +90,7 @@ exercise, use it on the phone like Remus, and draw a progress report over a chos
   through cascades, all rows; the app removes their stored files first (storage cannot be deleted from SQL).
 - **Design source of truth:** the user's "Dr Pocket Complete Brand + App Guide" (16 Nov 2026, 13 pages). Rebuilt to it
   on 16 Nov after the user rejected the earlier look. Key rules: four-part folded cross (turquoise top, teal left,
-  navy bottom, red right) with transparent seams, Montserrat (SemiBold Italic wordmark), palette #0B2342 / #006F7F /
+  navy bottom, red right) with transparent seams (now the supplied vector, see Logo), Montserrat (SemiBold Italic wordmark), palette #0B2342 / #006F7F /
   #00C7D9 / #EF2B3F / #E6F8F8 / #F6FAFB, red only for critical emphasis, no tagline, Light (default) / Dark / High
   contrast / System, never invent times or pain scores, charts show recorded data only, doctor summary traceable to
   dated entries, AI only with explicit consent. The guide also says "no Supabase/login without approval"; that line
@@ -115,9 +115,13 @@ exercise, use it on the phone like Remus, and draw a progress report over a chos
   are numbered E1… and every item in the JSON cites them; `content.refs` maps ids to entry id + date so the page links
   each point back to its entry. Sections: reason for visit, overview, chronology, changes, limitations, activities and
   exercise, triggers and relief, questions, urgent, not recorded. Export PDF (print stylesheet), Copy, Share.
+- **Logo**: the user's logo pack is in `public/brand/` (symbol, horizontal, white-text horizontal, app icon, tokens,
+  its README). Its README says to embed the files as-is and not to regenerate the logo; the app shows
+  `dr-pocket-symbol.svg` unchanged (`mark()` in `icons.js`) beside a Montserrat SemiBold Italic HTML wordmark (the
+  pack's own wordmark uses a stand-in font). Phone icons are made from `dr-pocket-app-icon.svg`: 192/512 as supplied;
+  180 (iPhone) with square corners, since iOS rounds them; maskable with the symbol inside Android's safe zone.
 - **Phone app**: `public/manifest.webmanifest` (start `/health/`), `public/sw.js` (caches no app code, only
-  `offline.html`, as in Remus), icons `public/icons/icon-{180,192,512,maskable}.png`, plus `mark.svg` and
-  `mark-512.png` (transparent). iPhone: Safari → Share → Add to Home Screen; remove and re-add to get a new icon.
+  `offline.html`, as in Remus), icons `public/icons/icon-{180,192,512,maskable}.png`. iPhone: Safari → Share → Add to Home Screen; remove and re-add to get a new icon.
 - **Tested** with Playwright at iPhone 15 Pro size against the real Supabase project (a throwaway account holding a
   copy of the user's entries) and a fake Anthropic endpoint: sign in, a 4/10 entry at an explicitly chosen time with
   text, symptoms, activity and a trigger, entry page, Insights, Exercise, Details, log exercise, global timeline,

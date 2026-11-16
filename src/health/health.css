@@ -52,7 +52,7 @@ a{color:var(--accent)}
 .top-c{justify-self:center;text-decoration:none}
 .top-r{justify-self:end}
 .lockup{display:inline-flex;align-items:center;gap:7px}
-.wordmark{font:italic 700 1.12rem/1 var(--f);color:var(--navy);letter-spacing:-.01em}
+.wordmark{font:italic 600 1.12rem/1 var(--f);color:var(--navy);letter-spacing:-.01em}
 :root[data-appearance="dark"] .wordmark{color:#fff}
 .icon-btn{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;color:var(--ink);background:transparent;border:0;cursor:pointer;position:relative}
 .icon-btn:hover{background:var(--surface-2)}
