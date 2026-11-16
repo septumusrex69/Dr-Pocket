@@ -72,7 +72,10 @@ export function dictation(host, textarea) {
   sel.value = lang;
   let rec = null;
   let wanted = false;
-  let base = '';
+  // The text before the current listening session started. Each session's words are joined onto it;
+  // when a session ends (a pause, or Stop) whatever is in the box becomes the new starting point.
+  let sessionBase = '';
+  let sessionText = '';
 
   const paint = () => {
     btn.innerHTML = wanted
@@ -83,49 +86,66 @@ export function dictation(host, textarea) {
   };
   const changed = () => textarea.dispatchEvent(new Event('input', { bubbles: true }));
 
+  // Everything heard in this session, final or not. iPhone Safari often marks nothing final until the
+  // session ends, and sometimes repeats earlier words at the start of a later result; both are handled
+  // here, so the words on screen are exactly the words that are kept.
+  function heard(results) {
+    const parts = [];
+    for (let i = 0; i < results.length; i += 1) {
+      const t = results[i][0].transcript.trim();
+      if (!t) continue;
+      const prev = parts[parts.length - 1];
+      if (prev && t.toLowerCase().startsWith(prev.toLowerCase())) parts[parts.length - 1] = t; // a longer version of the last one
+      else if (prev && prev.toLowerCase().startsWith(t.toLowerCase())) continue;               // a shorter repeat
+      else parts.push(t);
+    }
+    return parts.join(' ');
+  }
+  const show = () => { textarea.value = appendSpeech(sessionBase, sessionText); changed(); };
+  const commit = () => { sessionBase = textarea.value; sessionText = ''; };
+
   function begin() {
     const r = new C();
     r.lang = lang;
     r.continuous = true;
     r.interimResults = true;
     r.maxAlternatives = 1;
+    sessionText = '';
     r.onresult = (e) => {
-      let pending = '';
-      for (let i = e.resultIndex; i < e.results.length; i += 1) {
-        const res = e.results[i];
-        if (res.isFinal) {
-          base = appendSpeech(base, res[0].transcript);
-          textarea.value = base;
-        } else pending += res[0].transcript;
-      }
-      if (pending.trim()) textarea.value = appendSpeech(base, pending);
-      changed();
+      if (rec !== r) return; // a late result from a session that was already replaced
+      sessionText = heard(e.results);
+      show();
     };
     r.onerror = (e) => {
       const m = errorText(e.error);
       if (m) err.textContent = m;
       if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(e.error)) { wanted = false; paint(); }
     };
-    // Browsers end a session after a short silence; restart while the button still says Listening.
+    // Browsers end a session after a short silence; keep what was said and, while the button still
+    // says Listening, start a new session that carries on from there.
     r.onend = () => {
+      if (rec === r) { commit(); rec = null; }
       if (!wanted) { paint(); return; }
-      setTimeout(() => { if (wanted) begin(); }, 250);
+      setTimeout(() => { if (wanted && !rec) begin(); }, 250);
     };
     try { r.start(); rec = r; } catch { wanted = false; err.textContent = 'Dictation could not start. Try again.'; }
     paint();
   }
   function stop() {
     wanted = false;
-    try { rec?.stop(); } catch { /* already stopped */ }
-    rec = null;
-    textarea.value = base || textarea.value;
-    changed();
+    // Keep everything on screen, including words the phone had not marked final yet.
+    commit();
+    const r = rec; rec = null;
+    try { r?.stop(); } catch { /* already stopped */ }
     paint();
   }
+  // Typing in the box while listening: keep the typed text and carry on from it.
+  textarea.addEventListener('input', (ev) => { if (ev.isTrusted && wanted) { sessionBase = textarea.value; sessionText = ''; } });
   btn.onclick = () => {
     if (wanted) return stop();
     err.textContent = '';
-    base = textarea.value;
+    sessionBase = textarea.value;
+    sessionText = '';
     wanted = true;
     begin();
   };

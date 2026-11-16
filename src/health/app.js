@@ -266,32 +266,75 @@ function timeline(host, list, { problemName = null, filters = true } = {}) {
   paint();
 }
 
-// Pain over the last N days: recorded scores only, on a fixed 0–10 axis. Days without a score stay empty.
-function painChart(list, days = 14) {
-  const end = new Date(); end.setHours(23, 59, 59, 999);
-  const start = new Date(end); start.setDate(end.getDate() - days + 1); start.setHours(0, 0, 0, 0);
-  const pts = list.filter((e) => e.pain != null && D(e.at) >= start && D(e.at) <= end).map((e) => ({ t: +D(e.at), v: e.pain, e })).sort((a, b) => a.t - b.t);
-  const W = 340; const H = 150; const L = 24; const R = 10; const T = 12; const B = 24;
-  const x = (t) => L + ((t - start) / (end - start)) * (W - L - R);
-  const y = (v) => T + (1 - v / 10) * (H - T - B);
-  const grid = [0, 2, 4, 6, 8, 10].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 3.5}" text-anchor="end">${v}</text>`).join('');
-  const ticks = [];
-  for (let i = 0; i < days; i += Math.ceil(days / 7)) {
-    const d = new Date(start); d.setDate(start.getDate() + i);
-    ticks.push(`<text x="${x(+d + 43200000)}" y="${H - 6}" text-anchor="middle">${d.getDate()} ${d.toLocaleDateString('en-ZA', { month: 'short' })}</text>`);
-  }
-  const last = pts[pts.length - 1];
-  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
-  const label = pts.length ? `${n(pts.length, 'pain score')} in the last ${days} days, from ${Math.min(...pts.map((p) => p.v))} to ${Math.max(...pts.map((p) => p.v))} out of 10. Latest ${last.v}.` : `No pain scores recorded in the last ${days} days.`;
-  return `<figure class="card chart">
-    <div class="card-h"><h3>Pain trend <span class="muted">(last ${days} days)</span></h3>${last ? `<span class="pain-chip ${painLevel(last.v)}">${last.v}/10</span>` : ''}</div>
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
-      <g class="grid">${grid}</g><g class="ticks">${ticks.join('')}</g>
-      ${pts.length > 1 ? `<path class="line" d="${path}"/>` : ''}
-      ${pts.map((p) => `<circle class="dot ${painLevel(p.v)}" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4"><title>${esc(fmtWhen(p.e))}: ${p.v}/10</title></circle>`).join('')}
-    </svg>
-    <figcaption class="small muted">${esc(label)}${pts.length ? '' : ' Add a pain score when you write a note to see a trend here.'}</figcaption>
-  </figure>`;
+// Pain trend: recorded scores only, on a fixed 0–10 axis, for a day (by the hour), a week, a month,
+// three months or everything, with arrows to step back and forward. Missing scores stay missing (never zero).
+// A single day and a week join every score; longer periods join the daily average and show each score as a dot.
+const RANGE = { day: { label: 'Day' }, week: { label: 'Week', days: 7 }, month: { label: 'Month', days: 30 }, q: { label: '3 months', days: 91 }, all: { label: 'All' } };
+function mountPainChart(host, list) {
+  const pts0 = list.filter((e) => e.pain != null).map((e) => ({ t: +D(e.at), v: e.pain, e })).sort((a, b) => a.t - b.t);
+  const st = { r: pts0.length && Date.now() - pts0[pts0.length - 1].t < 864e5 && pts0.filter((p) => dayKey(p.t) === dayKey(new Date())).length > 2 ? 'day' : 'week', off: 0 };
+  const paint = () => {
+    const now = new Date();
+    let start; let end; let label;
+    if (st.r === 'day') {
+      start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() + st.off);
+      end = new Date(start); end.setDate(end.getDate() + 1);
+      label = dayLabel(start) === 'Today' || dayLabel(start) === 'Yesterday' ? `${dayLabel(start)}, ${start.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}` : start.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+    } else if (st.r === 'all') {
+      start = new Date(pts0.length ? pts0[0].t : now); start.setHours(0, 0, 0, 0);
+      end = new Date(now); end.setHours(23, 59, 59, 999);
+      if (end - start < 7 * 864e5) start = new Date(+end - 7 * 864e5 + 1);
+      label = 'Everything recorded';
+    } else {
+      const days = RANGE[st.r].days;
+      end = new Date(now); end.setHours(0, 0, 0, 0); end.setDate(end.getDate() + 1 + st.off * days);
+      start = new Date(end); start.setDate(start.getDate() - days);
+      const last = new Date(+end - 1);
+      label = `${start.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })} – ${last.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}`;
+    }
+    const pts = pts0.filter((p) => p.t >= +start && p.t < +end);
+    const W = 340; const H = 170; const L = 26; const R = 10; const T = 14; const B = 26;
+    const x = (t) => L + ((t - start) / (end - start)) * (W - L - R);
+    const y = (v) => T + (1 - v / 10) * (H - T - B);
+    const grid = [0, 2, 4, 6, 8, 10].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 7}" y="${y(v) + 3.5}" text-anchor="end">${v}</text>`).join('');
+    // ticks
+    const ticks = [];
+    if (st.r === 'day') for (let h = 0; h <= 24; h += 4) ticks.push([+start + h * 36e5, `${String(h).padStart(2, '0')}:00`]);
+    else {
+      const span = (end - start) / 864e5;
+      const step = span <= 7 ? 1 : span <= 31 ? 5 : span <= 92 ? 14 : Math.ceil(span / 6 / 7) * 7;
+      for (let d = new Date(start); d < end; d.setDate(d.getDate() + step)) ticks.push([+d + (span <= 7 ? 432e5 : 0), span <= 7 ? d.toLocaleDateString('en-ZA', { weekday: 'short' }).slice(0, 3) : `${d.getDate()} ${d.toLocaleDateString('en-ZA', { month: 'short' })}`]);
+    }
+    const tick = ticks.map(([t, l]) => `<line class="tk" x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}"/><text x="${x(t)}" y="${H - 8}" text-anchor="middle">${l}</text>`).join('');
+    // line: every score for a day or a week, the daily average for longer periods
+    let linePts = pts.map((p) => [p.t, p.v]);
+    if (st.r !== 'day' && st.r !== 'week') {
+      const by = {}; pts.forEach((p) => { (by[dayKey(p.t)] ||= []).push(p.v); });
+      linePts = Object.entries(by).sort().map(([k, vs]) => [+new Date(`${k}T12:00`), vs.reduce((a, v) => a + v, 0) / vs.length]);
+    }
+    const path = linePts.map(([t, v], i) => `${i ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const area = linePts.length > 1 ? `${path} L${x(linePts[linePts.length - 1][0]).toFixed(1)},${y(0)} L${x(linePts[0][0]).toFixed(1)},${y(0)} Z` : '';
+    const big = st.r === 'day' || st.r === 'week';
+    const last = pts[pts.length - 1];
+    const avg = pts.length ? (pts.reduce((a, p) => a + p.v, 0) / pts.length).toFixed(1) : null;
+    const desc = pts.length ? `${n(pts.length, 'pain score')} · low ${Math.min(...pts.map((p) => p.v))} · high ${Math.max(...pts.map((p) => p.v))} · average ${avg}` : 'No pain scores in this period.';
+    host.innerHTML = `<figure class="card chart pchart">
+      <div class="card-h"><h3>Pain trend</h3>${last ? `<span class="pain-chip ${painLevel(last.v)}">Latest ${last.v}/10</span>` : ''}</div>
+      <div class="seg pc-range" role="tablist">${Object.entries(RANGE).map(([k, r]) => `<button type="button" role="tab" data-r="${k}" aria-selected="${st.r === k}">${r.label}</button>`).join('')}</div>
+      <div class="pc-nav">${st.r === 'all' ? '<span></span>' : `<button type="button" class="icon-btn" data-step="-1" aria-label="Earlier">${icon('back')}</button>`}<b>${esc(label)}</b>${st.r === 'all' || st.off >= 0 ? '<span></span>' : `<button type="button" class="icon-btn" data-step="1" aria-label="Later">${icon('chevron')}</button>`}</div>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${label}: ${desc}`)}">
+        <defs><linearGradient id="pcfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--turq)" stop-opacity=".28"/><stop offset="1" stop-color="var(--turq)" stop-opacity="0"/></linearGradient></defs>
+        <g class="grid">${grid}</g><g class="ticks">${tick}</g>
+        ${area ? `<path class="area" d="${area}"/>` : ''}${linePts.length > 1 ? `<path class="line" d="${path}"/>` : ''}
+        ${pts.map((p) => `<circle class="dot ${painLevel(p.v)} ${big ? '' : 'small'} ${p.e.time_known === false && st.r === 'day' ? 'nt' : ''}" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="${big ? 5 : 3}"><title>${esc(fmtWhen(p.e))}: ${p.v}/10</title></circle>`).join('')}
+        ${!pts.length ? `<text class="empty-t" x="${(W + L) / 2}" y="${H / 2}" text-anchor="middle">No pain scores here</text>` : ''}
+      </svg>
+      <figcaption class="small muted">${esc(desc)}${!big && pts.length ? '. The line shows the daily average.' : ''}</figcaption>
+    </figure>`;
+    host.querySelectorAll('[data-r]').forEach((bt) => { bt.onclick = () => { st.r = bt.dataset.r; st.off = 0; paint(); }; });
+    host.querySelectorAll('[data-step]').forEach((bt) => { bt.onclick = () => { st.off += Number(bt.dataset.step); paint(); }; });
+  };
+  paint();
 }
 
 /* ---------- sign in ---------- */
@@ -492,9 +535,10 @@ async function renderProblem(id) {
         <div class="stat">${icon('file')}<span><small>Entries</small><b>${list.length}</b></span></div>
         <div class="stat">${icon('pulse')}<span><small>Avg pain</small>${pains.length ? `<b>${(pains.reduce((a, e) => a + e.pain, 0) / pains.length).toFixed(1)}</b>/10` : '<b>—</b>'}</span></div>
       </div>
-      ${painChart(list, 14)}
+      <div id="pc"></div>
       <div class="sec-h"><h2>Timeline</h2></div>
       <div id="tl"></div>`;
+    mountPainChart($('#pc'), list);
     timeline($('#tl'), list);
   } else if (t === 'insights') renderInsights(host, p, list);
   else if (t === 'exercise') {
