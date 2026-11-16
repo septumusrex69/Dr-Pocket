@@ -23,7 +23,7 @@ svg/  (master files, scale to any size)
   dr-pocket-horizontal-navy.svg      one colour navy
   dr-pocket-horizontal-white.svg     one colour white
   dr-pocket-stacked.svg / -white-text.svg   symbol above the wordmark
-  dr-pocket-app-icon.svg             rounded app icon (light at the bottom left to teal at the top right)
+  dr-pocket-app-icon.svg             rounded app icon (lighter petrol teal with faint flowing lines, glossy cross)
   dr-pocket-app-icon-square.svg      square, for iPhone (iOS rounds the corners itself)
   dr-pocket-app-icon-maskable.svg    symbol inside Android's safe zone
 png/  transparent PNG exports at the sizes in their names (app icons have their background)
