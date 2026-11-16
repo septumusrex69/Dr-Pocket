@@ -25,7 +25,9 @@ const AREAS = ['Head', 'Face / jaw', 'Eyes', 'Ears / nose / throat', 'Neck', 'Sh
 const SIDES = { none: '', left: 'Left', right: 'Right', both: 'Both sides' };
 const STATUS = { active: 'Active', improving: 'Improving', resolved: 'Resolved', archived: 'Archived' };
 const SYMPTOMS = ['Pain', 'Stiffness', 'Instability', 'Clicking / catching', 'Weakness', 'Numbness / tingling', 'Swelling', 'Fatigue'];
-const ACTIVITIES = ['Sitting', 'Walking', 'Driving', 'Working', 'Exercise', 'Lifting', 'Sleeping', 'Resting'];
+const ACTIVITIES = ['Computer work', 'Sitting', 'Standing', 'Walking', 'Driving', 'Phone use', 'Housework', 'Lifting / carrying', 'Exercise', 'Sport', 'Gardening', 'Sleeping', 'Lying down', 'Resting'];
+// Activities as a list; older entries only have the single text field.
+const actsOf = (e) => (e.activities?.length ? e.activities : e.activity ? e.activity.split(', ').filter(Boolean) : []);
 
 const D = (d) => new Date(d);
 const fmtDate = (d) => D(d).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -195,7 +197,7 @@ function tagsOf(e) {
   const tags = [];
   if (e.kind === 'day') tags.push(`${icon('moon')}End of day`);
   if (e.kind === 'exercise') tags.push(`${icon('dumbbell')}Exercise`);
-  else if (e.activity) tags.push(`${icon('walk')}${esc(e.activity)}`);
+  else actsOf(e).slice(0, 2).forEach((a, i) => tags.push(`${i ? '' : icon('walk')}${esc(a)}`));
   (e.symptoms || []).slice(0, 3).forEach((s) => tags.push(esc(s)));
   if (e.files?.length) tags.push(`${icon('image')}${e.files.length}`);
   return tags.map((t) => `<span class="tag">${t}</span>`).join('');
@@ -240,7 +242,7 @@ function timeline(host, list, { problemName = null, filters = true } = {}) {
   const paint = () => {
     const text = (q?.value || '').trim().toLowerCase();
     let shown = list;
-    if (text) shown = shown.filter((e) => `${e.body} ${e.exercise?.name || ''} ${(e.symptoms || []).join(' ')} ${e.activity} ${e.triggers} ${e.relief} ${e.impact}`.toLowerCase().includes(text));
+    if (text) shown = shown.filter((e) => `${e.body} ${e.exercise?.name || ''} ${(e.symptoms || []).join(' ')} ${actsOf(e).join(' ')} ${e.activity_detail || ''} ${e.triggers} ${e.relief} ${e.impact}`.toLowerCase().includes(text));
     if (kind?.value === 'pain') shown = shown.filter((e) => e.pain != null);
     else if (kind?.value) shown = shown.filter((e) => e.kind === kind.value);
     if (day?.value) shown = shown.filter((e) => dayKey(e.at) === day.value);
@@ -549,7 +551,7 @@ function renderInsights(host, p, all) {
   const pains = list.filter((e) => e.pain != null);
   const exN = list.filter((e) => e.kind === 'exercise').length;
   const tags = {}; list.forEach((e) => (e.symptoms || []).forEach((s) => { tags[s] = (tags[s] || 0) + 1; }));
-  const acts = {}; list.forEach((e) => { const a = e.activity || (e.kind === 'exercise' ? 'Exercise' : ''); if (a) (acts[a] ||= []).push(e); });
+  const acts = {}; list.forEach((e) => { const as = actsOf(e).length ? actsOf(e) : (e.kind === 'exercise' ? ['Exercise'] : []); as.forEach((a) => (acts[a] ||= []).push(e)); });
   const buckets = [['0–1', 0, 1], ['2–3', 2, 3], ['4–5', 4, 5], ['6–7', 6, 7], ['8–10', 8, 10]].map(([l, a, b]) => [l, pains.filter((e) => e.pain >= a && e.pain <= b).length]);
   const written = list.filter((e) => e.triggers || e.relief || e.impact);
   const avg = pains.length ? (pains.reduce((a, e) => a + e.pain, 0) / pains.length).toFixed(1) : null;
@@ -594,7 +596,8 @@ async function renderAdd() {
         <div class="card stack" id="when"></div>
         <div class="card stack" id="pain"></div>
         <div class="card stack" id="sym"></div>
-        <div class="card stack" id="act"></div>
+        <div class="card stack"><div id="act"></div>
+          <label class="field">How long, how far? <span class="hint">optional</span><input name="actdetail" maxlength="300" value="${esc(editing?.activity_detail || '')}" placeholder="e.g. 2 h at the computer, walked 3 km"></label></div>
         <details class="card more" ${editing && (editing.triggers || editing.relief || editing.impact) ? 'open' : ''}>
           <summary>More details <span class="hint">triggers, what helped, impact</span></summary>
           <div class="stack">
@@ -613,12 +616,12 @@ async function renderAdd() {
   const when = whenPicker($('#when'), editing);
   const pain = painPicker($('#pain'), editing?.pain ?? null);
   const sym = chipsPicker($('#sym'), { options: SYMPTOMS, selected: editing?.symptoms || [], label: 'Symptoms' });
-  const act = chipsPicker($('#act'), { options: ACTIVITIES, selected: editing?.activity ? [editing.activity] : [], multi: false, label: 'What were you doing?' });
+  const act = chipsPicker($('#act'), { options: ACTIVITIES, selected: editing ? actsOf(editing) : [], multi: true, label: 'What were you doing? (choose all that apply)' });
   const picked = editing ? () => [] : filePicker($('#files'));
   f.onsubmit = async (ev) => {
     ev.preventDefault();
     const text = f.body.value.trim(); const pv = pain(); const fl = picked();
-    const row = { body: text, pain: pv, symptoms: sym(), activity: act()[0] || '', triggers: f.triggers.value.trim(), relief: f.relief.value.trim(), impact: f.impact.value.trim() };
+    const row = { body: text, pain: pv, symptoms: sym(), activities: act(), activity: act().join(', '), activity_detail: f.actdetail.value.trim(), triggers: f.triggers.value.trim(), relief: f.relief.value.trim(), impact: f.impact.value.trim() };
     if (!text && pv == null && !fl.length && !row.symptoms.length) { $('.err').textContent = 'Write or dictate what happened, or add a pain score, symptom or file.'; return; }
     const w = when();
     const problemId = f.problem.value === 'none' ? null : f.problem.value;
@@ -633,7 +636,9 @@ async function renderAdd() {
           if (last && last.time_known !== false && Date.now() - D(last.at) < 15 * 60e3) {
             e = await entries.update(last.id, {
               body: [last.body, text].filter(Boolean).join('\n'), pain: pv ?? last.pain,
-              symptoms: [...new Set([...(last.symptoms || []), ...row.symptoms])], activity: row.activity || last.activity,
+              symptoms: [...new Set([...(last.symptoms || []), ...row.symptoms])],
+              activities: [...new Set([...actsOf(last), ...row.activities])], activity: [...new Set([...actsOf(last), ...row.activities])].join(', '),
+              activity_detail: [last.activity_detail, row.activity_detail].filter(Boolean).join('; '),
               triggers: row.triggers || last.triggers, relief: row.relief || last.relief, impact: row.impact || last.impact,
             });
             toast(`Added to your ${fmtTime(last.at)} note`);
@@ -730,8 +735,8 @@ async function renderEntry(id) {
       ${e.body ? `<section class="card"><div class="card-h"><h3>Your words</h3></div><p class="pre">${esc(e.body)}</p></section>` : ''}
       ${e.kind === 'day' ? `<dl class="card details">${field('Day', RATING[e.checkin?.rating])}${field('Sleep', [e.checkin?.sleep_h != null ? `${e.checkin.sleep_h} hours` : '', e.checkin?.sleep_q].filter(Boolean).join(', '))}${field('Energy', e.checkin?.energy)}${field('Mood', e.checkin?.mood)}</dl>` : ''}
       ${e.kind === 'exercise' ? `<section class="card"><div class="card-h"><h3>Exercise</h3></div><p>${esc([e.exercise?.name, summaryOf({ ...e, body: '' })].filter(Boolean).join(': '))}</p></section>` : ''}
-      ${(e.symptoms?.length || (e.activity && e.kind !== 'exercise') || e.triggers || e.relief || e.impact) ? `<dl class="card details">
-        ${field('Symptoms', (e.symptoms || []).join(', '))}${e.kind !== 'exercise' ? field('Doing', e.activity) : ''}${field('Trigger', e.triggers)}${field('What helped', e.relief)}${field('Impact', e.impact)}</dl>` : ''}
+      ${(e.symptoms?.length || (actsOf(e).length && e.kind !== 'exercise') || e.activity_detail || e.triggers || e.relief || e.impact) ? `<dl class="card details">
+        ${field('Symptoms', (e.symptoms || []).join(', '))}${e.kind !== 'exercise' ? field('Doing', actsOf(e).join(', ')) : ''}${field('How long, how far', e.activity_detail)}${field('Trigger', e.triggers)}${field('What helped', e.relief)}${field('Impact', e.impact)}</dl>` : ''}
       ${(e.files || []).length ? `<div class="media">${e.files.map((f) => `<a class="media-item" href="${esc(urls[f.path] || '#')}" target="_blank" rel="noopener">${/^image\//.test(f.mime) && urls[f.path] ? `<img src="${esc(urls[f.path])}" alt="${esc(f.name)}">` : `<span class="media-file">${icon('file')}<small>${esc(f.name)}</small></span>`}</a>`).join('')}</div>` : ''}
       <p class="small muted">Written down ${esc(fmtDate(e.created_at))}, ${esc(fmtTime(e.created_at))}${e.edits?.length ? ` · edited ${n(e.edits.length, 'time')}` : ''}</p>
       ${e.edits?.length ? `<details class="card more"><summary>Earlier versions</summary><ol class="plain">${e.edits.slice().reverse().map((v) => `<li><span class="small muted">${esc(fmtDate(v.saved_at))}, ${esc(fmtTime(v.saved_at))}</span><p class="pre">${esc(v.body || '(no text)')}${v.pain != null ? ` · pain ${v.pain}/10` : ''}</p></li>`).join('')}</ol></details>` : ''}
@@ -785,7 +790,7 @@ async function renderExercise() {
     ev.preventDefault();
     const num = (v) => (v === '' ? null : Number(v));
     const w = when();
-    const row = { problem_id: f.problem.value === 'none' ? null : f.problem.value, kind: 'exercise', exercise: { name: f.name.value.trim(), sets: num(f.sets.value), reps: num(f.reps.value), weight: num(f.weight.value), minutes: num(f.minutes.value), km: num(f.km.value) }, body: f.body.value.trim(), pain: pain(), at: w.at, time_known: w.time_known, activity: 'Exercise' };
+    const row = { problem_id: f.problem.value === 'none' ? null : f.problem.value, kind: 'exercise', exercise: { name: f.name.value.trim(), sets: num(f.sets.value), reps: num(f.reps.value), weight: num(f.weight.value), minutes: num(f.minutes.value), km: num(f.km.value) }, body: f.body.value.trim(), pain: pain(), at: w.at, time_known: w.time_known, activity: 'Exercise', activities: ['Exercise'] };
     const btn = $('#save'); busy(btn, true);
     try { if (editing) await entries.update(editing, row); else await entries.create(row); toast('Exercise saved'); go(`#/p/${row.problem_id || 'none'}?t=exercise`); } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
   };

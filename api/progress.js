@@ -167,12 +167,12 @@ export default async function handler(req, res) {
     if (pErr) throw pErr;
 
     const scoped = (q) => (problem === 'none' ? q.is('problem_id', null) : problem ? q.or(`problem_id.eq.${problem},kind.eq.day`) : q);
-    let eq = scoped(sb.from('entries').select('id, problem_id, kind, at, time_known, body, pain, exercise, symptoms, activity, triggers, relief, impact, checkin').lte('at', toD.toISOString()).order('at').limit(3000));
+    let eq = scoped(sb.from('entries').select('id, problem_id, kind, at, time_known, body, pain, exercise, symptoms, activity, triggers, relief, impact, checkin, activities, activity_detail').lte('at', toD.toISOString()).order('at').limit(3000));
     if (fromD) eq = eq.gte('at', fromD.toISOString());
     const scopedFiles = (q) => (problem === 'none' ? q.is('problem_id', null) : problem ? q.eq('problem_id', problem) : q);
     let fq = scopedFiles(sb.from('files').select('id, problem_id, entry_id, path, name, mime, size, at').lte('at', toD.toISOString()).order('at'));
     if (fromD) fq = fq.gte('at', fromD.toISOString());
-    const before = fromD ? scopedFiles(sb.from('entries').select('id, problem_id, kind, at, time_known, body, pain, exercise, symptoms, activity, triggers, relief, impact, checkin').lt('at', fromD.toISOString()).order('at', { ascending: false }).limit(6)) : null;
+    const before = fromD ? scopedFiles(sb.from('entries').select('id, problem_id, kind, at, time_known, body, pain, exercise, symptoms, activity, triggers, relief, impact, checkin, activities, activity_detail').lt('at', fromD.toISOString()).order('at', { ascending: false }).limit(6)) : null;
     const [{ data: list, error: eErr }, { data: fl, error: fErr }, prev] = await Promise.all([eq, fq, before || Promise.resolve({ data: [] })]);
     if (eErr) throw eErr;
     if (fErr) throw fErr;
@@ -196,7 +196,9 @@ export default async function handler(req, res) {
       if (e.kind === 'exercise') bits.push(`exercise: ${exerciseText(e.exercise)}`);
       bits.push(e.pain != null ? `pain ${e.pain}/10` : 'pain not recorded');
       if (e.symptoms?.length) bits.push(`symptoms: ${e.symptoms.join(', ')}`);
-      if (e.activity && e.kind !== 'exercise') bits.push(`activity: ${e.activity}`);
+      const acts = e.activities?.length ? e.activities : (e.activity ? [e.activity] : []);
+      if (acts.length && e.kind !== 'exercise') bits.push(`doing: ${acts.join(', ')}`);
+      if (e.activity_detail) bits.push(`how long/far: ${e.activity_detail}`);
       if (e.triggers) bits.push(`trigger: ${e.triggers}`);
       if (e.relief) bits.push(`relief: ${e.relief}`);
       if (e.impact) bits.push(`impact: ${e.impact}`);
