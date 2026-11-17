@@ -119,7 +119,7 @@ exercise, use it on the phone like Remus, and draw a progress report over a chos
   (outline measured and rebuilt as clean geometry, ~95% match; transparent gaps; brand colours with fitted gradients
   and fold shading; wordmark is Montserrat Bold Italic as outlines). Symbol, horizontal (navy / white text / one
   colour), stacked, app icons, PNGs and its README. The app header uses the horizontal SVGs (white-text version in
-  dark mode), sign-in and favicon use the symbol, phone icons come from the app-icon SVGs: lighter petrol teal (radial #1597A6 → #0A4A60) with very faint flowing white lines, and a glossy cross with brighter petals so the navy one stays visible (chosen by the user 16 Nov after three rounds of options). The 3D body page uses it too.
+  dark mode), sign-in and favicon use the symbol, phone icons come from the app-icon SVGs: silver (#F7F9FA → #C9D3DA, top to bottom) with very faint navy flowing lines and the glossy cross (chosen by the user 17 Nov, replacing the petrol teal version). The 3D body page uses it too.
   The scripts that built it live in the session scratchpad, not the repo.
 - **End of day (16 Nov):** check-in screen `#/checkin` (a `kind='day'` entry, General: 1–5 rating, overall pain,
   sleep hours/quality, energy, mood, words), with a "your day so far" summary worked out on the device. Home shows
