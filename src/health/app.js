@@ -266,75 +266,230 @@ function timeline(host, list, { problemName = null, filters = true } = {}) {
   paint();
 }
 
-// Pain trend: recorded scores only, on a fixed 0–10 axis, for a day (by the hour), a week, a month,
-// three months or everything, with arrows to step back and forward. Missing scores stay missing (never zero).
-// A single day and a week join every score; longer periods join the daily average and show each score as a dot.
-const RANGE = { day: { label: 'Day' }, week: { label: 'Week', days: 7 }, month: { label: 'Month', days: 30 }, q: { label: '3 months', days: 91 }, all: { label: 'All' } };
+// Pain trend, interactive like a stock chart: drag to move through time, pinch (or scroll) to zoom,
+// double-tap a day to see just that day, tap a dot for that entry. The strip underneath shows your whole
+// history with the visible window on it; drag the window, or its edges, to move or resize it.
+// Only recorded scores are drawn, on a fixed 0–10 axis; a missing score stays missing, never zero.
+const HOUR = 36e5; const DAY = 864e5;
+const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return +d; };
+const PRESETS = [['day', 'Day', DAY], ['week', 'Week', 7 * DAY], ['month', 'Month', 30 * DAY], ['q', '3 months', 91 * DAY], ['all', 'All', 0]];
+
 function mountPainChart(host, list) {
-  const pts0 = list.filter((e) => e.pain != null).map((e) => ({ t: +D(e.at), v: e.pain, e })).sort((a, b) => a.t - b.t);
-  const st = { r: pts0.length && Date.now() - pts0[pts0.length - 1].t < 864e5 && pts0.filter((p) => dayKey(p.t) === dayKey(new Date())).length > 2 ? 'day' : 'week', off: 0 };
-  const paint = () => {
-    const now = new Date();
-    let start; let end; let label;
-    if (st.r === 'day') {
-      start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() + st.off);
-      end = new Date(start); end.setDate(end.getDate() + 1);
-      label = dayLabel(start) === 'Today' || dayLabel(start) === 'Yesterday' ? `${dayLabel(start)}, ${start.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}` : start.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
-    } else if (st.r === 'all') {
-      start = new Date(pts0.length ? pts0[0].t : now); start.setHours(0, 0, 0, 0);
-      end = new Date(now); end.setHours(23, 59, 59, 999);
-      if (end - start < 7 * 864e5) start = new Date(+end - 7 * 864e5 + 1);
-      label = 'Everything recorded';
-    } else {
-      const days = RANGE[st.r].days;
-      end = new Date(now); end.setHours(0, 0, 0, 0); end.setDate(end.getDate() + 1 + st.off * days);
-      start = new Date(end); start.setDate(start.getDate() - days);
-      const last = new Date(+end - 1);
-      label = `${start.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })} – ${last.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}`;
-    }
-    const pts = pts0.filter((p) => p.t >= +start && p.t < +end);
-    const W = 340; const H = 170; const L = 26; const R = 10; const T = 14; const B = 26;
-    const x = (t) => L + ((t - start) / (end - start)) * (W - L - R);
-    const y = (v) => T + (1 - v / 10) * (H - T - B);
-    const grid = [0, 2, 4, 6, 8, 10].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 7}" y="${y(v) + 3.5}" text-anchor="end">${v}</text>`).join('');
-    // ticks
-    const ticks = [];
-    if (st.r === 'day') for (let h = 0; h <= 24; h += 4) ticks.push([+start + h * 36e5, `${String(h).padStart(2, '0')}:00`]);
-    else {
-      const span = (end - start) / 864e5;
-      const step = span <= 7 ? 1 : span <= 31 ? 5 : span <= 92 ? 14 : Math.ceil(span / 6 / 7) * 7;
-      for (let d = new Date(start); d < end; d.setDate(d.getDate() + step)) ticks.push([+d + (span <= 7 ? 432e5 : 0), span <= 7 ? d.toLocaleDateString('en-ZA', { weekday: 'short' }).slice(0, 3) : `${d.getDate()} ${d.toLocaleDateString('en-ZA', { month: 'short' })}`]);
-    }
-    const tick = ticks.map(([t, l]) => `<line class="tk" x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}"/><text x="${x(t)}" y="${H - 8}" text-anchor="middle">${l}</text>`).join('');
-    // line: every score for a day or a week, the daily average for longer periods
-    let linePts = pts.map((p) => [p.t, p.v]);
-    if (st.r !== 'day' && st.r !== 'week') {
-      const by = {}; pts.forEach((p) => { (by[dayKey(p.t)] ||= []).push(p.v); });
-      linePts = Object.entries(by).sort().map(([k, vs]) => [+new Date(`${k}T12:00`), vs.reduce((a, v) => a + v, 0) / vs.length]);
-    }
-    const path = linePts.map(([t, v], i) => `${i ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-    const area = linePts.length > 1 ? `${path} L${x(linePts[linePts.length - 1][0]).toFixed(1)},${y(0)} L${x(linePts[0][0]).toFixed(1)},${y(0)} Z` : '';
-    const big = st.r === 'day' || st.r === 'week';
-    const last = pts[pts.length - 1];
-    const avg = pts.length ? (pts.reduce((a, p) => a + p.v, 0) / pts.length).toFixed(1) : null;
-    const desc = pts.length ? `${n(pts.length, 'pain score')} · low ${Math.min(...pts.map((p) => p.v))} · high ${Math.max(...pts.map((p) => p.v))} · average ${avg}` : 'No pain scores in this period.';
-    host.innerHTML = `<figure class="card chart pchart">
-      <div class="card-h"><h3>Pain trend</h3>${last ? `<span class="pain-chip ${painLevel(last.v)}">Latest ${last.v}/10</span>` : ''}</div>
-      <div class="seg pc-range" role="tablist">${Object.entries(RANGE).map(([k, r]) => `<button type="button" role="tab" data-r="${k}" aria-selected="${st.r === k}">${r.label}</button>`).join('')}</div>
-      <div class="pc-nav">${st.r === 'all' ? '<span></span>' : `<button type="button" class="icon-btn" data-step="-1" aria-label="Earlier">${icon('back')}</button>`}<b>${esc(label)}</b>${st.r === 'all' || st.off >= 0 ? '<span></span>' : `<button type="button" class="icon-btn" data-step="1" aria-label="Later">${icon('chevron')}</button>`}</div>
-      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${label}: ${desc}`)}">
-        <defs><linearGradient id="pcfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--turq)" stop-opacity=".28"/><stop offset="1" stop-color="var(--turq)" stop-opacity="0"/></linearGradient></defs>
-        <g class="grid">${grid}</g><g class="ticks">${tick}</g>
-        ${area ? `<path class="area" d="${area}"/>` : ''}${linePts.length > 1 ? `<path class="line" d="${path}"/>` : ''}
-        ${pts.map((p) => `<circle class="dot ${painLevel(p.v)} ${big ? '' : 'small'} ${p.e.time_known === false && st.r === 'day' ? 'nt' : ''}" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="${big ? 5 : 3}"><title>${esc(fmtWhen(p.e))}: ${p.v}/10</title></circle>`).join('')}
-        ${!pts.length ? `<text class="empty-t" x="${(W + L) / 2}" y="${H / 2}" text-anchor="middle">No pain scores here</text>` : ''}
-      </svg>
-      <figcaption class="small muted">${esc(desc)}${!big && pts.length ? '. The line shows the daily average.' : ''}</figcaption>
-    </figure>`;
-    host.querySelectorAll('[data-r]').forEach((bt) => { bt.onclick = () => { st.r = bt.dataset.r; st.off = 0; paint(); }; });
-    host.querySelectorAll('[data-step]').forEach((bt) => { bt.onclick = () => { st.off += Number(bt.dataset.step); paint(); }; });
+  const pts = list.filter((e) => e.pain != null).map((e) => ({ t: +D(e.at), v: e.pain, e })).sort((a, b) => a.t - b.t);
+  const maxT = startOfDay(Date.now()) + DAY;
+  // You can always move back at least 30 days; "All" means from your first score.
+  const firstT = pts.length ? Math.min(startOfDay(pts[0].t), maxT - DAY) : maxT - 7 * DAY;
+  const minT = Math.min(firstT, maxT - 30 * DAY);
+  const MIN_SPAN = 2 * HOUR;
+  const todayCount = pts.filter((p) => p.t >= maxT - DAY).length;
+  let win = todayCount >= 2 ? [maxT - DAY, maxT] : [maxT - 7 * DAY, maxT];
+  const clampWin = ([a, b]) => {
+    let span = Math.min(Math.max(b - a, MIN_SPAN), maxT - minT);
+    a = Math.max(minT, Math.min(a, maxT - span));
+    return [a, a + span];
   };
-  paint();
+  const W = () => Math.max(260, host.clientWidth - 2);
+  const H = 196; const NH = 46; const L = 28; const R = 12; const T = 22; const B = 28;
+
+  host.innerHTML = `<figure class="card chart pchart">
+    <div class="card-h"><h3>Pain trend</h3>${pts.length ? `<span class="pain-chip ${painLevel(pts[pts.length - 1].v)}">Latest ${pts[pts.length - 1].v}/10</span>` : ''}</div>
+    <div class="seg pc-range" role="tablist">${PRESETS.map(([k, l]) => `<button type="button" data-p="${k}">${l}</button>`).join('')}</div>
+    <div class="pc-nav">
+      <button type="button" class="icon-btn" data-step="-1" aria-label="Earlier">${icon('back')}</button>
+      <b class="pc-label"></b>
+      <button type="button" class="icon-btn" data-step="1" aria-label="Later">${icon('chevron')}</button>
+    </div>
+    <div class="pc-tools">
+      <button type="button" class="chip-btn small-chip" data-today>Today</button>
+      <label class="chip-btn small-chip pc-date">${icon('calendar')}<span>Pick a day</span><input type="date" aria-label="Show one day" max="${dayKey(Date.now())}"></label>
+      <button type="button" class="chip-btn small-chip" data-zoom="out" aria-label="Zoom out">−</button>
+      <button type="button" class="chip-btn small-chip" data-zoom="in" aria-label="Zoom in">+</button>
+    </div>
+    <div class="pc-stage"><svg class="pc-main" role="img"></svg><div class="pc-tip" hidden></div></div>
+    <svg class="pc-nav-strip" aria-label="Your whole history; drag the window to move it"></svg>
+    <figcaption class="small muted pc-cap"></figcaption>
+    <p class="pc-hint">Drag to move · pinch or scroll to zoom · double-tap a day to see just that day · tap a dot for its entry</p>
+  </figure>`;
+  const svg = host.querySelector('.pc-main'); const strip = host.querySelector('.pc-nav-strip');
+  const tip = host.querySelector('.pc-tip'); const label = host.querySelector('.pc-label'); const cap = host.querySelector('.pc-cap');
+
+  const tickFor = (span) => {
+    const steps = [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY, 14 * DAY, 30 * DAY, 61 * DAY, 91 * DAY];
+    return steps.find((s) => span / s <= 7.2) || 182 * DAY;
+  };
+  const fmtTick = (t, step, span) => {
+    const d = new Date(t);
+    if (step < DAY) return d.getHours() === 0 ? d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric' }) : `${String(d.getHours()).padStart(2, '0')}:00`;
+    if (span <= 10 * DAY) return d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric' });
+    if (step >= 30 * DAY) return d.toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' });
+    return `${d.getDate()} ${d.toLocaleDateString('en-ZA', { month: 'short' })}`;
+  };
+  const sameDayWin = () => win[1] - win[0] === DAY && win[0] === startOfDay(win[0]);
+
+  function render() {
+    const w = W(); const [a, b] = win; const span = b - a;
+    const x = (t) => L + ((t - a) / span) * (w - L - R);
+    const y = (v) => T + (1 - v / 10) * (H - T - B);
+    svg.setAttribute('viewBox', `0 0 ${w} ${H}`); svg.setAttribute('width', w); svg.setAttribute('height', H);
+    const inWin = pts.filter((p) => p.t >= a && p.t <= b);
+    // grid, ticks, midnight lines with day names when a few days are visible
+    const grid = [0, 2, 4, 6, 8, 10].map((v) => `<line x1="${L}" x2="${w - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 7}" y="${y(v) + 3.5}" text-anchor="end">${v}</text>`).join('');
+    const step = tickFor(span); const ticks = []; const labels = [];
+    let t0 = step < DAY ? Math.ceil(a / HOUR) * HOUR : startOfDay(a) + (startOfDay(a) < a ? DAY : 0);
+    if (step < DAY) { while (new Date(t0).getHours() % Math.round(step / HOUR)) t0 += HOUR; }
+    for (let t = t0; t <= b; t += step) {
+      if (step >= DAY) t = startOfDay(t + HOUR * 3); // keep on midnights across clock changes
+      const xt = x(t);
+      ticks.push(`<line class="tk" x1="${xt}" x2="${xt}" y1="${T}" y2="${H - B}"/>`);
+      if (xt > L + 16 && xt < w - R - 16) labels.push(`<text x="${xt}" y="${H - 9}" text-anchor="middle">${fmtTick(t, step, span)}</text>`); // never cut a label at the edge
+    }
+    let days = '';
+    if (span <= 4 * DAY) for (let t = startOfDay(a); t < b; t += DAY) {
+      const m = startOfDay(t + 3 * HOUR); const xm = Math.max(L, x(m)); const xe = Math.min(w - R, x(m + DAY));
+      if (xe - xm > 34) days += `<text class="dayname" x="${(xm + xe) / 2}" y="${T - 8}" text-anchor="middle">${esc(dayLabel(m) === 'Today' || dayLabel(m) === 'Yesterday' ? dayLabel(m) : new Date(m).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }))}</text>`;
+      if (m > a) days += `<line class="midnight" x1="${x(m)}" x2="${x(m)}" y1="${T - 2}" y2="${H - B}"/>`;
+    }
+    // line: every score when up to ~10 days are visible, otherwise the daily average
+    let lp = inWin.map((p) => [p.t, p.v]);
+    const avgMode = span > 10 * DAY;
+    if (avgMode) {
+      const by = {}; inWin.forEach((p) => { (by[dayKey(p.t)] ||= []).push(p.v); });
+      lp = Object.entries(by).sort().map(([k, vs]) => [+new Date(`${k}T12:00`), vs.reduce((s, v) => s + v, 0) / vs.length]);
+    }
+    const path = lp.map(([t, v], i) => `${i ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const area = lp.length > 1 ? `${path} L${x(lp[lp.length - 1][0]).toFixed(1)},${y(0)} L${x(lp[0][0]).toFixed(1)},${y(0)} Z` : '';
+    const r = span <= 2 * DAY ? 6 : span <= 10 * DAY ? 4.5 : 3;
+    svg.innerHTML = `<defs><linearGradient id="pcfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00C7D9" stop-opacity=".3"/><stop offset="1" stop-color="#00C7D9" stop-opacity="0"/></linearGradient>
+        <clipPath id="pcclip"><rect x="${L}" y="0" width="${w - L - R}" height="${H}"/></clipPath></defs>
+      <g class="grid">${grid}</g><g class="ticks" clip-path="url(#pcclip)">${ticks.join('')}</g><g class="ticks">${labels.join('')}</g><g clip-path="url(#pcclip)">${days}
+      ${area ? `<path class="area" d="${area}"/>` : ''}${lp.length > 1 ? `<path class="line" d="${path}"/>` : ''}
+      ${inWin.map((p) => `<circle class="dot ${painLevel(p.v)} ${p.e.time_known === false ? 'nt' : ''}" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="${r}"/>`).join('')}</g>
+      ${!inWin.length ? `<text class="empty-t" x="${(w + L) / 2}" y="${H / 2}" text-anchor="middle">No pain scores here · drag or zoom out</text>` : ''}`;
+    // header label and summary
+    const last = new Date(b - 1);
+    label.textContent = sameDayWin() ? (['Today', 'Yesterday'].includes(dayLabel(a)) ? `${dayLabel(a)}, ${new Date(a).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}` : new Date(a).toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'short' }))
+      : span < DAY && dayKey(a) === dayKey(b - 1) ? `${new Date(a).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}, ${fmtTime(a)}–${fmtTime(b)}`
+        : `${new Date(a).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })} – ${last.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: last.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined })}`;
+    const avg = inWin.length ? (inWin.reduce((s, p) => s + p.v, 0) / inWin.length).toFixed(1) : null;
+    cap.textContent = inWin.length ? `${n(inWin.length, 'pain score')} · low ${Math.min(...inWin.map((p) => p.v))} · high ${Math.max(...inWin.map((p) => p.v))} · average ${avg}${avgMode ? '. The line shows the daily average.' : ''}` : 'No pain scores in this period.';
+    svg.setAttribute('aria-label', `${label.textContent}: ${cap.textContent}`);
+    host.querySelectorAll('[data-p]').forEach((bt) => {
+      const pr = PRESETS.find((p) => p[0] === bt.dataset.p);
+      const on = pr[0] === 'all' ? Math.abs(a - firstT) < HOUR && b >= maxT : pr[0] === 'day' ? sameDayWin() : Math.abs(span - pr[2]) < HOUR;
+      bt.setAttribute('aria-selected', String(on));
+    });
+    host.querySelector('[data-step="1"]').disabled = b >= maxT;
+    host.querySelector('[data-step="-1"]').disabled = a <= minT;
+    // overview strip: whole history, the visible window highlighted
+    const nx = (t) => 4 + ((t - minT) / (maxT - minT)) * (w - 8);
+    const ny = (v) => 6 + (1 - v / 10) * (NH - 12);
+    const by = {}; pts.forEach((p) => { (by[dayKey(p.t)] ||= []).push(p.v); });
+    const ov = Object.entries(by).sort().map(([k, vs]) => [nx(+new Date(`${k}T12:00`)), ny(vs.reduce((s, v) => s + v, 0) / vs.length)]);
+    const wx0 = nx(a); const wx1 = Math.max(nx(b), wx0 + 6);
+    strip.setAttribute('viewBox', `0 0 ${w} ${NH}`); strip.setAttribute('width', w); strip.setAttribute('height', NH);
+    strip.innerHTML = `<rect class="nv-bg" x="0" y="0" width="${w}" height="${NH}" rx="10"/>
+      ${ov.length > 1 ? `<path class="nv-line" d="${ov.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join(' ')}"/>` : ''}
+      ${ov.map(([px, py]) => `<circle class="nv-dot" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="1.8"/>`).join('')}
+      <rect class="nv-shade" x="0" y="0" width="${wx0}" height="${NH}"/><rect class="nv-shade" x="${wx1}" y="0" width="${Math.max(0, w - wx1)}" height="${NH}"/>
+      <rect class="nv-win" x="${wx0}" y="1" width="${wx1 - wx0}" height="${NH - 2}" rx="6"/>
+      <rect class="nv-handle" x="${wx0 - 3}" y="${NH / 2 - 9}" width="6" height="18" rx="3"/><rect class="nv-handle" x="${wx1 - 3}" y="${NH / 2 - 9}" width="6" height="18" rx="3"/>`;
+    hideTip();
+  }
+  let raf = 0; const draw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
+  const setWin = (wn) => { win = clampWin(wn); draw(); };
+  const showDay = (t) => setWin([startOfDay(t), startOfDay(t) + DAY]);
+
+  // tooltip for the nearest dot
+  function hideTip() { tip.hidden = true; }
+  function showTipAt(px, py) {
+    const w = W(); const [a, b] = win; const span = b - a;
+    const x = (t) => L + ((t - a) / span) * (w - L - R); const y = (v) => T + (1 - v / 10) * (H - T - B);
+    let best = null; let bd = 22;
+    pts.forEach((p) => { if (p.t < a || p.t > b) return; const d = Math.hypot(x(p.t) - px, y(p.v) - py); if (d < bd) { bd = d; best = p; } });
+    if (!best) { hideTip(); return false; }
+    tip.innerHTML = `<b>${best.v}/10</b> <span>${esc(fmtWhen(best.e))}</span><br><a href="#/e/${best.e.id}">${esc(titleOf(best.e))} ›</a>`;
+    tip.hidden = false;
+    const tx = Math.min(Math.max(x(best.t) - 90, 4), w - 184); tip.style.left = `${tx}px`;
+    tip.style.top = `${Math.max(y(best.v) - 74, 0)}px`;
+    return true;
+  }
+
+  // gestures on the main chart: drag = move, two fingers = zoom, double-tap = that day, tap = nearest dot
+  const ptrs = new Map(); let g = null; let lastTap = 0;
+  const pxToT = (clientX) => { const rc = svg.getBoundingClientRect(); const fx = (clientX - rc.left - L) / (rc.width - L - R); return win[0] + fx * (win[1] - win[0]); };
+  svg.addEventListener('pointerdown', (ev) => {
+    svg.setPointerCapture(ev.pointerId); ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (ptrs.size === 1) g = { mode: 'pan', x0: ev.clientX, y0: ev.clientY, win0: [...win], moved: false, at: Date.now() };
+    if (ptrs.size === 2) { const [p1, p2] = [...ptrs.values()]; g = { mode: 'pinch', d0: Math.abs(p1.x - p2.x) || 1, c0: pxToT((p1.x + p2.x) / 2), win0: [...win], moved: true }; }
+  });
+  svg.addEventListener('pointermove', (ev) => {
+    if (!ptrs.has(ev.pointerId) || !g) return;
+    ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    const rc = svg.getBoundingClientRect(); const plot = rc.width - L - R;
+    if (g.mode === 'pan' && ptrs.size === 1) {
+      const dx = ev.clientX - g.x0;
+      if (Math.abs(dx) > 5) g.moved = true;
+      if (g.moved) { const span = g.win0[1] - g.win0[0]; setWin([g.win0[0] - (dx / plot) * span, g.win0[1] - (dx / plot) * span]); }
+    } else if (g.mode === 'pinch' && ptrs.size === 2) {
+      const [p1, p2] = [...ptrs.values()]; const d = Math.abs(p1.x - p2.x) || 1;
+      const span = (g.win0[1] - g.win0[0]) * (g.d0 / d);
+      const f = (g.c0 - g.win0[0]) / (g.win0[1] - g.win0[0]);
+      setWin([g.c0 - f * span, g.c0 + (1 - f) * span]);
+    }
+  });
+  const up = (ev) => {
+    if (!ptrs.has(ev.pointerId)) return;
+    ptrs.delete(ev.pointerId);
+    if (g && g.mode === 'pan' && !g.moved && ev.type === 'pointerup' && Date.now() - g.at < 400) {
+      const rc = svg.getBoundingClientRect();
+      if (Date.now() - lastTap < 320) { showDay(pxToT(ev.clientX)); lastTap = 0; } else { lastTap = Date.now(); showTipAt(ev.clientX - rc.left, ev.clientY - rc.top) || hideTip(); }
+    }
+    if (ptrs.size === 0) g = null;
+    else if (ptrs.size === 1) { const [p] = [...ptrs.values()]; g = { mode: 'pan', x0: p.x, y0: p.y, win0: [...win], moved: true, at: 0 }; }
+  };
+  svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+  svg.addEventListener('wheel', (ev) => {
+    if (!ev.ctrlKey && Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) { ev.preventDefault(); const span = win[1] - win[0]; const sh = (ev.deltaX / svg.getBoundingClientRect().width) * span; setWin([win[0] + sh, win[1] + sh]); return; }
+    ev.preventDefault();
+    const c = pxToT(ev.clientX); const k = Math.exp(ev.deltaY * 0.0025);
+    setWin([c - (c - win[0]) * k, c + (win[1] - c) * k]);
+  }, { passive: false });
+
+  // overview strip: drag the window, drag its edges to resize, tap elsewhere to jump there
+  let sg = null;
+  const stripT = (clientX) => { const rc = strip.getBoundingClientRect(); return minT + ((clientX - rc.left - 4) / (rc.width - 8)) * (maxT - minT); };
+  strip.addEventListener('pointerdown', (ev) => {
+    strip.setPointerCapture(ev.pointerId);
+    const rc = strip.getBoundingClientRect(); const px = ev.clientX - rc.left;
+    const nx = (t) => 4 + ((t - minT) / (maxT - minT)) * (rc.width - 8);
+    const x0 = nx(win[0]); const x1 = Math.max(nx(win[1]), x0 + 6);
+    const mode = Math.abs(px - x0) < 14 ? 'left' : Math.abs(px - x1) < 14 ? 'right' : px > x0 && px < x1 ? 'move' : 'jump';
+    sg = { mode, t0: stripT(ev.clientX), win0: [...win] };
+    if (mode === 'jump') { const span = win[1] - win[0]; setWin([sg.t0 - span / 2, sg.t0 + span / 2]); sg = { mode: 'move', t0: sg.t0, win0: [sg.t0 - span / 2, sg.t0 + span / 2] }; }
+  });
+  strip.addEventListener('pointermove', (ev) => {
+    if (!sg) return; const t = stripT(ev.clientX); const dt = t - sg.t0;
+    if (sg.mode === 'move') setWin([sg.win0[0] + dt, sg.win0[1] + dt]);
+    else if (sg.mode === 'left') setWin([Math.min(sg.win0[0] + dt, sg.win0[1] - MIN_SPAN), sg.win0[1]]);
+    else if (sg.mode === 'right') setWin([sg.win0[0], Math.max(sg.win0[1] + dt, sg.win0[0] + MIN_SPAN)]);
+  });
+  const sup = () => { sg = null; }; strip.addEventListener('pointerup', sup); strip.addEventListener('pointercancel', sup);
+
+  // buttons
+  host.querySelectorAll('[data-p]').forEach((bt) => {
+    bt.onclick = () => {
+      const pr = PRESETS.find((p) => p[0] === bt.dataset.p);
+      if (pr[0] === 'all') return setWin([firstT, maxT]);
+      if (pr[0] === 'day') return showDay(Math.min(win[1] - 1, maxT - 1));
+      const end = Math.min(startOfDay(win[1] - 1) + DAY, maxT); setWin([end - pr[2], end]);
+    };
+  });
+  host.querySelectorAll('[data-step]').forEach((bt) => { bt.onclick = () => { const span = win[1] - win[0]; const s = Number(bt.dataset.step) * span; setWin([win[0] + s, win[1] + s]); }; });
+  host.querySelector('[data-today]').onclick = () => showDay(maxT - 1);
+  host.querySelectorAll('[data-zoom]').forEach((bt) => { bt.onclick = () => { const c = (win[0] + win[1]) / 2; const k = bt.dataset.zoom === 'in' ? 0.5 : 2; const span = (win[1] - win[0]) * k; setWin([c - span / 2, c + span / 2]); }; });
+  host.querySelector('.pc-date input').onchange = (ev) => { if (ev.target.value) showDay(+new Date(`${ev.target.value}T12:00`)); };
+  new ResizeObserver(() => draw()).observe(host);
+  render();
 }
 
 /* ---------- sign in ---------- */
