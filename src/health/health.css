@@ -227,7 +227,6 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .pc-stage{position:relative;margin:0 -4px}
 .pc-main{display:block;touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
 .pc-main:active{cursor:grabbing}
-.pc-nav-strip{display:block;touch-action:none;margin-top:6px;cursor:pointer}
 .pc-tip{position:absolute;width:180px;background:var(--navy);color:#fff;border-radius:10px;padding:8px 10px;font-size:.78em;line-height:1.35;box-shadow:0 6px 18px rgba(11,35,66,.3);z-index:2}
 .pc-tip b{font-size:1.15em}
 .pc-tip span{opacity:.8}
@@ -239,12 +238,6 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .chart .dayname{font:600 10px var(--f);fill:var(--ink)}
 .chart .dot.nt{fill:var(--surface)!important;stroke:var(--muted);stroke-width:1.5}
 .chart .empty-t{font:500 11px var(--f);fill:var(--muted)}
-.nv-bg{fill:var(--surface-2)}
-.nv-line{fill:none;stroke:var(--turq);stroke-width:1.5}
-.nv-dot{fill:var(--accent)}
-.nv-shade{fill:var(--bg);opacity:.55}
-.nv-win{fill:none;stroke:var(--accent);stroke-width:2}
-.nv-handle{fill:var(--accent)}
 .details{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:0}
 .details dt{color:var(--muted);font-size:.85em}
 .details dd{margin:0;font-weight:500}

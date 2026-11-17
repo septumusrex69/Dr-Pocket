@@ -267,8 +267,7 @@ function timeline(host, list, { problemName = null, filters = true } = {}) {
 }
 
 // Pain trend, interactive like a stock chart: drag to move through time, pinch (or scroll) to zoom,
-// double-tap a day to see just that day, tap a dot for that entry. The strip underneath shows your whole
-// history with the visible window on it; drag the window, or its edges, to move or resize it.
+// double-tap a day to see just that day, tap a dot for that entry.
 // Only recorded scores are drawn, on a fixed 0–10 axis; a missing score stays missing, never zero.
 const HOUR = 36e5; const DAY = 864e5;
 const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return +d; };
@@ -289,7 +288,7 @@ function mountPainChart(host, list) {
     return [a, a + span];
   };
   const W = () => Math.max(260, host.clientWidth - 2);
-  const H = 196; const NH = 46; const L = 28; const R = 12; const T = 22; const B = 28;
+  const H = 196; const L = 28; const R = 12; const T = 22; const B = 28;
 
   host.innerHTML = `<figure class="card chart pchart">
     <div class="card-h"><h3>Pain trend</h3>${pts.length ? `<span class="pain-chip ${painLevel(pts[pts.length - 1].v)}">Latest ${pts[pts.length - 1].v}/10</span>` : ''}</div>
@@ -306,11 +305,10 @@ function mountPainChart(host, list) {
       <button type="button" class="chip-btn small-chip" data-zoom="in" aria-label="Zoom in">+</button>
     </div>
     <div class="pc-stage"><svg class="pc-main" role="img"></svg><div class="pc-tip" hidden></div></div>
-    <svg class="pc-nav-strip" aria-label="Your whole history; drag the window to move it"></svg>
     <figcaption class="small muted pc-cap"></figcaption>
     <p class="pc-hint">Drag to move · pinch or scroll to zoom · double-tap a day to see just that day · tap a dot for its entry</p>
   </figure>`;
-  const svg = host.querySelector('.pc-main'); const strip = host.querySelector('.pc-nav-strip');
+  const svg = host.querySelector('.pc-main');
   const tip = host.querySelector('.pc-tip'); const label = host.querySelector('.pc-label'); const cap = host.querySelector('.pc-cap');
 
   const tickFor = (span) => {
@@ -380,19 +378,6 @@ function mountPainChart(host, list) {
     });
     host.querySelector('[data-step="1"]').disabled = b >= maxT;
     host.querySelector('[data-step="-1"]').disabled = a <= minT;
-    // overview strip: whole history, the visible window highlighted
-    const nx = (t) => 4 + ((t - minT) / (maxT - minT)) * (w - 8);
-    const ny = (v) => 6 + (1 - v / 10) * (NH - 12);
-    const by = {}; pts.forEach((p) => { (by[dayKey(p.t)] ||= []).push(p.v); });
-    const ov = Object.entries(by).sort().map(([k, vs]) => [nx(+new Date(`${k}T12:00`)), ny(vs.reduce((s, v) => s + v, 0) / vs.length)]);
-    const wx0 = nx(a); const wx1 = Math.max(nx(b), wx0 + 6);
-    strip.setAttribute('viewBox', `0 0 ${w} ${NH}`); strip.setAttribute('width', w); strip.setAttribute('height', NH);
-    strip.innerHTML = `<rect class="nv-bg" x="0" y="0" width="${w}" height="${NH}" rx="10"/>
-      ${ov.length > 1 ? `<path class="nv-line" d="${ov.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join(' ')}"/>` : ''}
-      ${ov.map(([px, py]) => `<circle class="nv-dot" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="1.8"/>`).join('')}
-      <rect class="nv-shade" x="0" y="0" width="${wx0}" height="${NH}"/><rect class="nv-shade" x="${wx1}" y="0" width="${Math.max(0, w - wx1)}" height="${NH}"/>
-      <rect class="nv-win" x="${wx0}" y="1" width="${wx1 - wx0}" height="${NH - 2}" rx="6"/>
-      <rect class="nv-handle" x="${wx0 - 3}" y="${NH / 2 - 9}" width="6" height="18" rx="3"/><rect class="nv-handle" x="${wx1 - 3}" y="${NH / 2 - 9}" width="6" height="18" rx="3"/>`;
     hideTip();
   }
   let raf = 0; const draw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
@@ -454,26 +439,6 @@ function mountPainChart(host, list) {
     const c = pxToT(ev.clientX); const k = Math.exp(ev.deltaY * 0.0025);
     setWin([c - (c - win[0]) * k, c + (win[1] - c) * k]);
   }, { passive: false });
-
-  // overview strip: drag the window, drag its edges to resize, tap elsewhere to jump there
-  let sg = null;
-  const stripT = (clientX) => { const rc = strip.getBoundingClientRect(); return minT + ((clientX - rc.left - 4) / (rc.width - 8)) * (maxT - minT); };
-  strip.addEventListener('pointerdown', (ev) => {
-    strip.setPointerCapture(ev.pointerId);
-    const rc = strip.getBoundingClientRect(); const px = ev.clientX - rc.left;
-    const nx = (t) => 4 + ((t - minT) / (maxT - minT)) * (rc.width - 8);
-    const x0 = nx(win[0]); const x1 = Math.max(nx(win[1]), x0 + 6);
-    const mode = Math.abs(px - x0) < 14 ? 'left' : Math.abs(px - x1) < 14 ? 'right' : px > x0 && px < x1 ? 'move' : 'jump';
-    sg = { mode, t0: stripT(ev.clientX), win0: [...win] };
-    if (mode === 'jump') { const span = win[1] - win[0]; setWin([sg.t0 - span / 2, sg.t0 + span / 2]); sg = { mode: 'move', t0: sg.t0, win0: [sg.t0 - span / 2, sg.t0 + span / 2] }; }
-  });
-  strip.addEventListener('pointermove', (ev) => {
-    if (!sg) return; const t = stripT(ev.clientX); const dt = t - sg.t0;
-    if (sg.mode === 'move') setWin([sg.win0[0] + dt, sg.win0[1] + dt]);
-    else if (sg.mode === 'left') setWin([Math.min(sg.win0[0] + dt, sg.win0[1] - MIN_SPAN), sg.win0[1]]);
-    else if (sg.mode === 'right') setWin([sg.win0[0], Math.max(sg.win0[1] + dt, sg.win0[0] + MIN_SPAN)]);
-  });
-  const sup = () => { sg = null; }; strip.addEventListener('pointerup', sup); strip.addEventListener('pointercancel', sup);
 
   // buttons
   host.querySelectorAll('[data-p]').forEach((bt) => {
