@@ -16,6 +16,9 @@
       "maxDuration": 60,
       "memory": 2048,
       "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
+    },
+    "api/credits.js": {
+      "maxDuration": 30
     }
   },
   "headers": [

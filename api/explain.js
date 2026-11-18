@@ -144,7 +144,7 @@ export default async function handler(req, res) {
   const started = Date.now();
   const note = (outcome) => console.log(`explain: ${files.length} page(s), ${Math.round(total / 1024)} KB, text ${text ? 'yes' : 'no'} -> ${outcome} in ${Math.round((Date.now() - started) / 1000)}s`);
   try {
-    const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'high' });
+    const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'high', track: { action: 'scan_explain' } });
     note(stop);
     if (stop === 'refusal') return res.status(422).json({ error: 'This report could not be explained. Please ask your doctor to go through it with you.' });
     if (stop === 'max_tokens') return res.status(502).json({ error: 'The explanation was cut short. Try pasting only the findings and conclusion.' });

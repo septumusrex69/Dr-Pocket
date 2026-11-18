@@ -1,6 +1,7 @@
 // Shared by /api/explain and /api/ask. Files starting with "_" are not endpoints on Vercel.
 import Anthropic from '@anthropic-ai/sdk';
 import { STRUCTURES } from './_vocab.js';
+import { recordUsage } from './_usage.js';
 
 export { Anthropic, STRUCTURES };
 export const MODEL = 'claude-opus-5-5';
@@ -25,7 +26,8 @@ export function allowed(req, kind, limit) {
 
 /* Ask Claude for JSON matching the schema. Streams, so long reports never hit a request timeout.
    Thrown errors are the SDK's typed errors; a refusal or cut-off answer comes back as { stop }. */
-export async function askForJson({ system, content, schema, effort, maxTokens = 32000 }) {
+// track: { action, userId, detail } records the call's tokens and estimated cost (see _usage.js).
+export async function askForJson({ system, content, schema, effort, maxTokens = 32000, track = null }) {
   const stream = client.beta.messages.stream({
     model: MODEL,
     max_tokens: maxTokens,
@@ -36,6 +38,7 @@ export async function askForJson({ system, content, schema, effort, maxTokens = 
     messages: [{ role: 'user', content }],
   });
   const msg = await stream.finalMessage();
+  if (track) await recordUsage({ ...track, model: msg.model || MODEL, usage: msg.usage });
   if (msg.stop_reason === 'refusal' || msg.stop_reason === 'max_tokens') return { stop: msg.stop_reason };
   const out = msg.content.find((b) => b.type === 'text');
   return { stop: msg.stop_reason, data: JSON.parse(out?.text || '') };

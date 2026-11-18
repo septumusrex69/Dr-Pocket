@@ -4,7 +4,7 @@
 // worked out on the device from what was recorded; the doctor summary is written by Claude only when
 // the person asks for it and agrees to send the entries.
 import './health.css';
-import { sb, auth, problems, entries, files, reports, routines } from './db.js';
+import { sb, auth, problems, entries, files, reports, routines, usage } from './db.js';
 import { dictation } from './dictate.js';
 import { icon, mark, lockup } from './icons.js';
 import { MODES, currentMode, applyMode } from './appearance.js';
@@ -1083,7 +1083,8 @@ function ensureReportCss() {
 async function renderReports() {
   const ps = params();
   const pid = ps.get('p') || '';
-  const [list, past, all] = await Promise.all([problems.list().catch(() => []), reports.list(null).catch(() => []), entries.list({ limit: 5000 }).catch(() => [])]);
+  const [list, past, all, spent] = await Promise.all([problems.list().catch(() => []), reports.list(null).catch(() => []), entries.list({ limit: 5000 }).catch(() => []), usage.mine(new Date(Date.now() - 90 * 864e5).toISOString()).catch(() => [])]);
+  const madeBefore = spent.filter((x) => x.action === 'report');
   const chosen = pid || list.find((p) => p.status === 'active')?.id || '';
   const tz = localTz();
   const today = zoned(Date.now(), tz).key;
@@ -1107,6 +1108,7 @@ async function renderReports() {
         </div>
         <p class="err" role="alert"></p>
         <button class="btn primary big">${icon('sparkle')} Create report</button>
+        <p class="small muted center">${madeBefore.length ? `Your recent reports cost about ${money(madeBefore.reduce((a, x) => a + Number(x.cost_usd), 0) / madeBefore.length, true)} each in Claude credit.` : 'Each report uses a little Claude credit.'} <a href="#/usage">See usage</a></p>
       </form>
       ${past.length ? `<div class="sec-h"><h2>Earlier reports</h2></div><ul class="cards">${past.map((r) => `<li><a class="card prob" href="#/r/${r.id}"><div class="prob-h"><div><span class="eyebrow">${r.kind === 'feedback' ? 'Feedback (old style)' : /· (Daily|Weekly|Monthly|Yearly) ·/.test(r.range_label) ? 'Report' : 'Doctor summary (old style)'}</span><b>${esc(r.range_label)}</b><span class="muted small">Created ${esc(fmtDate(r.created_at))}</span></div>${icon('chevron')}</div>${r.headline ? `<span class="small">${esc(r.headline)}</span>` : ''}</a></li>`).join('')}</ul>` : ''}`,
   });
@@ -1379,6 +1381,65 @@ function renderFeedback(r) {
   $('#del').onclick = async () => { if (!confirm('Delete this feedback? Your entries stay.')) return; await reports.remove(r.id).catch(() => {}); go('#/reports'); };
 }
 
+
+/* ---------- Claude usage and credit ---------- */
+const ACTION_NAMES = { report: 'Report', report_update: 'Report update after a correction', scan_explain: 'Scan report explained (3D page)', ask: 'Question about the body (3D page)' };
+const money = (v, fine = false) => { const x = Number(v || 0); if (x > 0 && x < 0.01) return fine ? `$${x.toFixed(4)}` : '<$0.01'; return `$${x.toFixed(fine && x < 1 ? 3 : 2)}`; };
+const ktok = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
+async function renderUsage() {
+  const now = new Date(); const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  shell({ back: '#/settings', body: '<h1 class="h1">Claude usage</h1><div id="credit"></div><div id="mine"><p class="empty">Loading…</p></div>' });
+  const [rows, owner] = await Promise.all([usage.mine(new Date(now - 90 * 864e5).toISOString()).catch(() => []), usage.isOwner().catch(() => false)]);
+  // Dr Pocket's own calls (this person's), worked out from the usage log.
+  const month = rows.filter((r) => new Date(r.created_at) >= monthStart);
+  const by = {};
+  for (const r of month) { const x = (by[r.action] ||= { n: 0, usd: 0, tok: 0 }); x.n++; x.usd += Number(r.cost_usd); x.tok += r.input_tokens + r.output_tokens + r.cache_write_tokens + r.cache_read_tokens; }
+  const total = month.reduce((s, r) => s + Number(r.cost_usd), 0);
+  $('#mine').innerHTML = `<section class="card stack"><div class="card-h"><h3>${icon('sparkle')} Dr Pocket this month</h3><span class="hint">${esc(monthStart.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' }))}</span></div>
+      <div class="u-big"><b>${money(total)}</b><span>${n(month.length, 'Claude call')}</span></div>
+      ${Object.keys(by).length ? `<table class="u-table"><thead><tr><th>What for</th><th>Times</th><th>Each, about</th><th>Total</th></tr></thead><tbody>${Object.entries(by).sort((a, b) => b[1].usd - a[1].usd).map(([k, x]) => `<tr><td>${esc(ACTION_NAMES[k] || k)}</td><td>${x.n}</td><td>${money(x.usd / x.n, true)}</td><td><b>${money(x.usd)}</b></td></tr>`).join('')}</tbody></table>` : '<p class="muted small">No Claude calls yet this month. Claude is only used when you create a report (and on the 3D page when you explain a scan or ask a question).</p>'}
+    </section>
+    ${rows.length ? `<section class="card stack"><div class="card-h"><h3>Recent calls</h3><span class="hint">last 90 days</span></div>
+      <ul class="u-list">${rows.slice(0, 40).map((r) => `<li><div><b>${esc(ACTION_NAMES[r.action] || r.action)}</b><small>${esc(fmtDate(r.created_at))}, ${esc(fmtTime(r.created_at))}${r.detail ? ` · ${esc(r.detail)}` : ''}</small><small class="muted">${ktok(r.input_tokens + r.cache_write_tokens + r.cache_read_tokens)} tokens in, ${ktok(r.output_tokens)} out · ${esc(r.model.replace('claude-', '').replace(/-/g, ' '))}</small></div><span class="u-cost">${money(r.cost_usd, true)}</span></li>`).join('')}</ul></section>` : ''}
+    <p class="small muted">Costs are estimates: the tokens each call used, at Anthropic’s list prices. Your Anthropic bill is the final word. Recorded from 18 November 2026; earlier calls are not included.</p>`;
+  if (!owner) return;
+  const host = $('#credit');
+  host.innerHTML = '<section class="card"><p class="empty">Loading your credit…</p></section>';
+  let c;
+  try { c = await usage.credits(); } catch (err) { host.innerHTML = `<section class="card"><p class="err">${esc(errMsg(err))}</p></section>`; return; }
+  const acc = c.account || {}; const b = c.baseline;
+  const asOf = b ? `${fmtDate(b.as_of)}, ${fmtTime(b.as_of)}` : '';
+  const left = c.remaining;
+  host.innerHTML = `<section class="card stack credit">
+      <div class="card-h"><h3>${icon('pulse')} Claude credit</h3><span class="hint">whole Anthropic account</span></div>
+      ${b ? `<div class="u-big ${left && left.usd < 5 ? 'low' : ''}"><span class="lbl">About</span><b>${left ? money(Math.max(0, left.usd)) : '–'}</b><span>left (estimate)</span></div>
+        <p class="small">From the <b>${money(b.amount)}</b> balance you entered on ${esc(asOf)}, minus <b>${money(left?.basis === 'account' ? acc.since_baseline : c.drpocket.since_baseline)}</b> spent since by ${left?.basis === 'account' ? 'all your software on this Anthropic account' : 'Dr Pocket'}.</p>
+        ${left?.basis === 'account' && acc.since_refreshed_at ? `<p class="small muted">Anthropic’s figures run a few hours behind (up to ${esc(fmtDate(acc.since_refreshed_at))}, ${esc(fmtTime(acc.since_refreshed_at))}); Dr Pocket’s own calls after that are added. Other software’s use in those last hours is not in yet.</p>` : ''}
+        ${acc.too_old ? '<p class="small warn-line">That balance is more than a year old or from before 2026, so not all spend since can be counted. Enter today’s balance.</p>' : ''}
+        ${left?.basis !== 'account' ? '<p class="small warn-line">Only Dr Pocket’s spend is subtracted. Other software using the same credit is not counted yet, so your real balance is lower. Add an Admin key (below) to count everything.</p>' : ''}`
+      : '<p class="small">Anthropic does not let apps read your remaining credit directly. Enter the balance shown on your Anthropic billing page once; Dr Pocket then subtracts what is spent from then on.</p>'}
+      <form id="bal" class="bal-form">
+        <label class="field">${b ? 'Update the balance' : 'Balance now'} <span class="hint">USD, from the billing page</span><input name="amount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="e.g. 18.50"></label>
+        <button class="btn primary">${icon('check')} Save</button>
+      </form>
+      <a class="small" href="https://platform.claude.com/settings/billing" target="_blank" rel="noopener">Open the Anthropic billing page ↗</a>
+    </section>
+    ${acc.configured && !acc.error ? `<section class="card stack"><div class="card-h"><h3>This month, all software</h3><span class="hint">${money(acc.month_total)}</span></div>
+      ${acc.month_by_key?.length ? `<ul class="u-keys">${acc.month_by_key.map((k) => `<li><span>${esc(k.name)}${k.this_app ? ' <span class="tag">Dr Pocket</span>' : ''}</span><b>${money(k.usd)}</b><i style="--w:${Math.max(2, Math.round((k.usd / Math.max(acc.month_total, 0.0001)) * 100))}%"></i></li>`).join('')}</ul>` : '<p class="muted small">Nothing spent this month yet.</p>'}
+      <p class="small muted">By API key, from Anthropic’s cost report${acc.refreshed_at ? `, up to ${esc(fmtDate(acc.refreshed_at))}, ${esc(fmtTime(acc.refreshed_at))}` : ''}.</p></section>` : ''}
+    ${acc.error ? `<section class="card"><p class="err">${esc(acc.error)}</p></section>` : ''}
+    ${!acc.configured ? `<details class="card more"><summary>Count every app that uses this credit</summary>
+      <ol class="small steps"><li>In the Claude Console, open <b>Settings → Admin keys</b> and create an Admin key (only an organization admin can).</li>
+      <li>In Vercel, open the <b>dr-pocket</b> project → <b>Settings → Environment Variables</b>, add <code>ANTHROPIC_ADMIN_KEY</code> with that key (Production), and redeploy.</li>
+      <li>Come back here: you will see this month’s spend for every API key, and the credit estimate will subtract all of it.</li></ol>
+      <p class="small muted">The Admin key can read your organisation’s usage and settings, so keep it only in Vercel.</p></details>` : ''}`;
+  $('#bal').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = ev.target.querySelector('button'); busy(btn, true, 'Saving…');
+    try { await usage.setBaseline(Number(ev.target.amount.value), new Date().toISOString()); toast('Balance saved'); renderUsage(); } catch (err) { busy(btn, false); toast(errMsg(err)); }
+  };
+}
+
 /* ---------- evening reminder (web push) ---------- */
 const b64ToBytes = (b) => { const s = atob((b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, (ch) => ch.charCodeAt(0)); };
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -1417,6 +1478,7 @@ function renderSettings() {
         <p class="small">Every evening at 21:00, a notification with a quick summary of your day that opens your end-of-day check-in. It only counts what you recorded; nothing goes to an AI service.</p>
         <p class="small muted" id="push-note"></p>
         <button class="btn" id="push" hidden></button></section>
+      <a class="card set-link" href="#/usage">${icon('chart')}<span><b>Claude usage and credit</b><small>What each AI action cost, and how much credit is left</small></span>${icon('chevron')}</a>
       <section class="card stack"><div class="card-h"><h3>Account</h3></div>
         <p class="small acct">${icon('user')} ${esc(session.user.email)}</p>
         <div class="row-btns"><a class="btn" href="#/password">Change password</a><button class="btn" id="out">Sign out</button></div></section>
@@ -1470,6 +1532,7 @@ async function route() {
       case 'reports': case 'report': return await renderReports();
       case 'r': return await renderReport(parts[1]);
       case 'settings': case 'account': case 'look': return renderSettings();
+      case 'usage': return await renderUsage();
       case 'password': return renderPassword();
       case 'checkin': return await renderCheckin();
       default: return await renderHome();

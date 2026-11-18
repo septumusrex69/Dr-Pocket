@@ -51,7 +51,7 @@ export default async function handler(req, res) {
 
   const started = Date.now();
   try {
-    const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'medium', maxTokens: 8000 });
+    const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'medium', maxTokens: 8000, track: { action: 'ask' } });
     console.log(`ask: ${question.length} chars -> ${stop} in ${Math.round((Date.now() - started) / 1000)}s`);
     if (stop === 'refusal') return res.status(422).json({ error: 'That question could not be answered here. Please ask your doctor.' });
     if (stop === 'max_tokens') return res.status(502).json({ error: 'The answer was cut short. Try a narrower question.' });

@@ -85,6 +85,20 @@ export const routines = {
   archive: async (id) => must(await sb.from('routines').update({ archived: true, updated_at: new Date().toISOString() }).eq('id', id)),
 };
 
+/* ---------- Claude usage and credit ---------- */
+export const usage = {
+  mine: async (fromIso) => must(await sb.from('ai_usage').select('id, action, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_usd, detail, created_at').gte('created_at', fromIso).order('created_at', { ascending: false }).limit(1000)),
+  async isOwner() { const { data } = await sb.rpc('is_owner'); return data === true; },
+  setBaseline: async (amount, asOf) => must(await sb.rpc('set_credit_baseline', { p_amount: amount, p_as_of: asOf })),
+  async credits() {
+    const s = await auth.session();
+    const res = await fetch('/api/credits', { headers: { Authorization: `Bearer ${s?.access_token || ''}` } });
+    const out = await res.json().catch(() => ({ error: 'Something went wrong.' }));
+    if (!res.ok) throw new Error(out.error || 'Something went wrong.');
+    return out;
+  },
+};
+
 /* ---------- files (X-rays, scans, photos, letters) ---------- */
 
 // Phone photos are 4–12 MB; 2000 px JPEG keeps an X-ray readable at a fraction of the size.

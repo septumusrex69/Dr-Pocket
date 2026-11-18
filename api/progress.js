@@ -137,10 +137,10 @@ function clean(n, known) {
   return out;
 }
 
-async function write(m, extra) {
+async function write(m, extra, track) {
   const content = [{ type: 'text', text: `<journal>\n${journalText(m, extra)}\n</journal>` }, { type: 'text', text: 'Write both versions of the report explanations.' }];
   const started = Date.now();
-  const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'medium', maxTokens: 16000 });
+  const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'medium', maxTokens: 16000, track });
   console.log(`progress: ${m.rows.length} entries -> ${stop} in ${Math.round((Date.now() - started) / 1000)}s`);
   if (stop === 'refusal') { const e = new Error('refusal'); e.http = [422, 'A report could not be written for this period. Try a different period.']; throw e; }
   if (stop === 'max_tokens') { const e = new Error('long'); e.http = [502, 'The report was cut short. Try a shorter period.']; throw e; }
@@ -172,7 +172,7 @@ export default async function handler(req, res) {
       const review = { additions: [], corrections: [], ...(c.review || {}) };
       review.corrections = review.corrections.map((x) => (x.status === 'pending' ? { ...x, status: 'applied', applied_at: now } : x));
       const m = buildModel({ source: c.source, problems: c.problems, problemId: c.problem_id, period: periodFor(c.period.type, c.period.end), tz: c.tz, now: c.generated_at, earlier: c.earlier, corrections: review.corrections });
-      const narrative = await write(m, { reason: c.reason, review });
+      const narrative = await write(m, { reason: c.reason, review }, { action: 'report_update', userId: who.user.id, detail: `${TYPES[c.period.type]} report, ${m.label}` });
       review.status = 'draft'; delete review.confirmed_at;
       const versions = [...(c.versions || []), { at: now, narrative: c.narrative }].slice(-10);
       const content = { ...c, narrative, review, versions, headline: narrative.doctor.summary[0]?.text || '', updated_at: now };
@@ -203,7 +203,7 @@ export default async function handler(req, res) {
     const earlier = [...new Set(prior.flatMap((e) => notableTerms(e)))];
     const now = new Date().toISOString();
     const m = buildModel({ source: list, problems: probs, problemId: problem, period, tz, now, earlier });
-    const narrative = await write(m, { reason: b.reason });
+    const narrative = await write(m, { reason: b.reason }, { action: 'report', userId: who.user.id, detail: `${TYPES[type]} report, ${m.label}` });
     const title = problem ? probs.find((x) => x.id === problem)?.title || 'Problem' : 'All problems';
     const { data: saved, error: sErr } = await sb.from('reports').insert({
       kind: 'clinician',

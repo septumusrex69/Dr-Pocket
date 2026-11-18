@@ -13,7 +13,8 @@ Where the project stands, how it fits together, and what comes next. README.md c
 - **Hosting:** Vercel, team "Team Raptor", project `dr-pocket`
   (team `team_NqhNnG5PYU2gClsXdgoQMbOE`, project `prj_o7cwssWLQt53fCWMZcvzEJ8cFOTw`).
 - **Database:** Supabase project "Dr Pocket" (`lpdvppqtpatbzvrrgdnr`, eu-west-3, org Team Raptor, Pro plan).
-- **Vercel environment variables (all sensitive):** `ANTHROPIC_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`.
+- **Vercel environment variables (all sensitive):** `ANTHROPIC_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`
+  (also guards usage logging). Optional, set by the owner: `ANTHROPIC_ADMIN_KEY` (credit view for all software).
   The same `CRON_SECRET` is stored in the database table `private.app_secrets` (name `cron`).
 - **Last change (18 Nov):** the new reporting feature (daily/weekly/monthly/yearly reports, two versions, patient
   review, PDF export) and exercise routines. Deployed to main.
@@ -34,7 +35,11 @@ Where the project stands, how it fits together, and what comes next. README.md c
 3. **Not checked on a real iPhone yet:** pinch-to-zoom on the pain chart, the full-width fix (pages used to be
    shrunk by Safari; see Gotchas), and the sideways (landscape) layout.
 4. **Older plan points not built:** optional auto-delete of data (never / 6 months / 1 year).
-5. **Reports not yet run against the real Claude API and the real Vercel Chromium by a person:** both were tested
+5. **Claude usage and credit (built 18 Nov, on the preview branch until "push to main"):** to count other software
+   too, the owner must create an Admin API key in the Claude Console (Settings → Admin keys; organisation admins
+   only) and add it in Vercel as `ANTHROPIC_ADMIN_KEY`. Until then the credit estimate subtracts Dr Pocket's spend
+   only and says so. The owner also types the balance from the Anthropic billing page once.
+6. **Reports not yet run against the real Claude API and the real Vercel Chromium by a person:** both were tested
    with stand-ins (see Testing). The PDF engine has a self-check: `GET /api/report-pdf?check=1` returns a sample PDF
    with no personal data. The first real report will show whether Claude's wording stays inside the rules.
 
@@ -134,6 +139,14 @@ Show screenshots of visual changes before going live, and keep explanations plai
   - **Storage:** `reports.content.v = 2` holds the period, time zone, generation time, a snapshot of the entries
     used (`source`), the narrative, the review (additions, corrections) and earlier versions. Older reports
     (feedback / doctor summary from 16–17 Nov) still open in their old layout.
+- **Claude usage and credit** (`#/usage`, from Settings; added 18 Nov): every Claude call (report, report update,
+  scan explanation, body question) is logged with its tokens and an estimated cost from list prices
+  (`api/_usage.js`, table `ai_usage`). Everyone sees their own Dr Pocket spend this month by action, and recent
+  calls. The owner (row in `private.owners`) also sees **Claude credit**: Anthropic has no API for the remaining
+  balance, so the owner enters the balance from the billing page (saved with its time) and `api/credits.js`
+  subtracts everything spent since. With `ANTHROPIC_ADMIN_KEY` set it reads Anthropic's cost report (all software
+  on the account, by API key, 4-24 h behind; Dr Pocket's own later calls are added on top) and names each API key,
+  marking Dr Pocket's. The Reports screen shows what recent reports cost each.
 - **Dictation** (`src/health/dictate.js`): the browser's own speech recognition (free; en-ZA, af-ZA, en-GB), keeps
   listening through pauses. Fixed 17 Nov: on iPhone Safari words are rarely marked "final" until the session ends,
   and Stop used to keep only the final words (2–3 words). Now the text on screen is what is kept, pauses carry on,
@@ -150,6 +163,9 @@ Show screenshots of visual changes before going live, and keep explanations plai
 - `0004_activities.sql`: `entries.activities[]` and `activity_detail`; `activity` kept as the joined text so older
   code still reads it; history trigger includes them.
 - `0005_routines.sql`: `routines` (name, problem, `items` jsonb [{name, detail}], note, archived), RLS owner-only.
+- `0006_ai_usage.sql`: `ai_usage` (read own; written only through `log_ai_usage(secret, …)` with the cron secret),
+  `private.owners`, `private.credit_baseline`, and owner-only functions `is_owner`, `owner_ai_usage`,
+  `get_credit_baseline`, `set_credit_baseline`. Applied; the owner's account is in `private.owners`.
 - The 8 entries copied from the user's phone notes (14–16 Nov) have `time_known=false` (the notes had dates only).
 
 ### Code (`health/index.html`, `src/health/`, `api/`)
@@ -168,6 +184,7 @@ Show screenshots of visual changes before going live, and keep explanations plai
 | `api/progress.js` | Creates a report (both versions in one Claude Opus 5.5 call, structured output, consent required) or rewrites one after confirmed corrections (`action: 'regenerate'`) |
 | `api/report-pdf.js`, `api/_pdf.js`, `api/_font.js`, `api/_logo.js` | PDF export of confirmed reports; Chromium launcher; embedded Montserrat and logo. `vercel.json` gives it 60 s, 2 GB and includes the Chromium files |
 | `api/evening.js` | The 21:00 reminder sender |
+| `api/_usage.js`, `api/credits.js` | Logs each Claude call's tokens and estimated cost (`askForJson({ track })`); the owner's credit overview (Admin API cost report when `ANTHROPIC_ADMIN_KEY` is set) |
 | `public/manifest.webmanifest`, `public/sw.js`, `public/offline.html` | Installable app; the service worker caches no app code (as in Remus), shows an offline page, and handles push |
 | `public/brand/` | Logo master files and their README |
 | `public/icons/` | Phone icons `icon-180` (iPhone, square), `icon-192`, `icon-512`, `icon-maskable` |
