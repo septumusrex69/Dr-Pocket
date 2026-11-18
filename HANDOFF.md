@@ -26,15 +26,13 @@ Where the project stands, how it fits together, and what comes next. README.md c
      sign-in-link and password-reset emails point at localhost.
    - Authentication → SMTP: Resend (`smtp.resend.com`, port 465, user `resend`, a Resend API key), sender
      `drpocket@bredellferreira.co.za` (chosen 16 Nov). The built-in mailer sends only a few emails an hour.
-2. **Test account to delete:** `qa-preview@drpocket.invalid` (holds a copy of the user's entries plus sample
-   pain scores, used for screenshots). Deleting it via SQL asks the user for approval; it has not been approved yet.
-3. **Evening reminder not yet switched on by the user:** `push_subscriptions` was empty on 17 Nov. The user has
+2. **Evening reminder not yet switched on by the user:** `push_subscriptions` was empty on 17 Nov. The user has
    step-by-step instructions (open from the Home Screen icon → Settings → Evening reminder → Allow). The first real
    send (cron + web push to an iPhone) has not happened yet; if it fails, check the Vercel function logs for
    `api/evening`.
-4. **Not checked on a real iPhone yet:** pinch-to-zoom on the pain chart, and the full-width fix (pages used to be
-   shrunk by Safari; see Gotchas).
-5. **Older plan points not built:** optional auto-delete of data (never / 6 months / 1 year).
+3. **Not checked on a real iPhone yet:** pinch-to-zoom on the pain chart, the full-width fix (pages used to be
+   shrunk by Safari; see Gotchas), and the sideways (landscape) layout.
+4. **Older plan points not built:** optional auto-delete of data (never / 6 months / 1 year).
 
 ## My health (`/health/`)
 
@@ -179,6 +177,10 @@ Show screenshots of visual changes before going live, and keep explanations plai
 - **iPhone Safari width:** Safari shrinks the whole page if anything pokes past the screen edge. Date inputs used to
   do that (they ignore width unless `appearance:none`). `html,body` and `.page` use `overflow-x:clip` (not
   `hidden`, which would break the sticky header and scrolling).
+- **Landscape:** the app may rotate (manifest `orientation: any`). A phone on its side (landscape, height ≤ 520px)
+  gets the full width, a compact full-width bottom bar, cards side by side, and no big Add Note button where the
+  bottom bar's Add Note already does the job. The floating bottom pill is only for screens ≥ 820 wide and ≥ 600 tall.
+- **Test accounts:** none left (all deleted 18 Nov). Make a fresh one with SQL for screenshots and delete it after.
 - **Web push on iPhone** works only from the Home Screen app. Notification permission is per device.
 - **Secrets:** the cron secret and VAPID private key exist only in Vercel and in `private.app_secrets`; local copies
   were deleted. To rotate: generate new values, update both places (and VAPID: the public key in `config.js`; every
