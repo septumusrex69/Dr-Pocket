@@ -327,7 +327,7 @@ export function dayChart(day, events, { w = 640, h = 230, big = true } = {}) {
   if (day.untimed.length) {
     const cx = L + pw + R / 2 + 2;
     s += `<rect x="${L + pw + 6}" y="${T - 4}" width="${R - 8}" height="${ph + 8}" rx="6" fill="${C.none}"/>`;
-    s += `<text x="${cx}" y="${h - 6}" text-anchor="middle" font-size="${fs}" fill="${C.axis}">No time</text>`;
+    s += `<text x="${cx}" y="${big ? h - 6 : T - 8}" text-anchor="middle" font-size="${big ? fs : fs - 2}" fill="${C.axis}">No time</text>`;
     day.untimed.forEach((r, i) => {
       const off = (i - (day.untimed.length - 1) / 2) * 7;
       const ev = evBy[r.ref];
