@@ -76,6 +76,15 @@ export const entries = {
   },
 };
 
+/* ---------- exercise routines (a named list of exercises or stretches, logged in one go) ---------- */
+export const routines = {
+  list: async () => must(await sb.from('routines').select('*').eq('archived', false).order('name')),
+  get: async (id) => must(await sb.from('routines').select('*').eq('id', id).single()),
+  create: async (r) => must(await sb.from('routines').insert(r).select().single()),
+  update: async (id, r) => must(await sb.from('routines').update({ ...r, updated_at: new Date().toISOString() }).eq('id', id).select().single()),
+  archive: async (id) => must(await sb.from('routines').update({ archived: true, updated_at: new Date().toISOString() }).eq('id', id)),
+};
+
 /* ---------- files (X-rays, scans, photos, letters) ---------- */
 
 // Phone photos are 4–12 MB; 2000 px JPEG keeps an X-ray readable at a fraction of the size.
@@ -124,6 +133,13 @@ export const reports = {
   },
   get: async (id) => must(await sb.from('reports').select('*').eq('id', id).single()),
   remove: async (id) => must(await sb.from('reports').delete().eq('id', id)),
+  async saveContent(id, content) { must(await sb.from('reports').update({ content }).eq('id', id)); },
+  async pdf(id, audience) {
+    const s = await auth.session();
+    const res = await fetch('/api/report-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s?.access_token || ''}` }, body: JSON.stringify({ id, audience }) });
+    if (!res.ok) { const out = await res.json().catch(() => ({})); throw new Error(out.error || 'The PDF could not be made.'); }
+    return res.blob();
+  },
   async draw(body) {
     const s = await auth.session();
     const res = await fetch('/api/progress', {

@@ -4,11 +4,12 @@
 // worked out on the device from what was recorded; the doctor summary is written by Claude only when
 // the person asks for it and agrees to send the entries.
 import './health.css';
-import { sb, auth, problems, entries, files, reports } from './db.js';
+import { sb, auth, problems, entries, files, reports, routines } from './db.js';
 import { dictation } from './dictate.js';
 import { icon, mark, lockup } from './icons.js';
 import { MODES, currentMode, applyMode } from './appearance.js';
 import { VAPID_PUBLIC_KEY } from './config.js';
+import { buildModel, periodFor, reportHTML, REPORT_CSS, coverageLine, zoned, dayWd, dayShort, activityPhrase } from './report.js';
 
 const app = document.getElementById('app');
 let session = null;
@@ -182,6 +183,12 @@ function summaryOf(e) {
     else if (c.sleep_q) bits.push(`sleep ${c.sleep_q.toLowerCase()}`);
     if (c.energy) bits.push(`energy ${c.energy.toLowerCase()}`);
     if (c.mood) bits.push(`mood ${c.mood.toLowerCase()}`);
+    return [bits.join(' · '), e.body].filter(Boolean).join('. ');
+  }
+  if (e.kind === 'exercise' && e.exercise?.items) {
+    const x = e.exercise; const done = x.items.filter((i) => i.done !== false).length;
+    const bits = [x.items.length ? `${done} of ${x.items.length} done` : 'Routine done'];
+    if (x.minutes) bits.push(`${x.minutes} min`);
     return [bits.join(' · '), e.body].filter(Boolean).join('. ');
   }
   if (e.kind === 'exercise') {
@@ -530,7 +537,7 @@ async function renderHome() {
       </section>
       <div class="quick">
         <a class="qa primary" href="#/add">${icon('plus')}<span><b>Add note</b><small>Type or dictate</small></span></a>
-        <a class="qa" href="#/exercise">${icon('dumbbell')}<span><b>Log exercise</b><small>Sets, reps, minutes</small></span></a>
+        <a class="qa" href="#/exercise">${icon('dumbbell')}<span><b>Log exercise</b><small>A routine or one exercise</small></span></a>
       </div>
       <div id="eod"></div>
       <div class="sec-h"><h2>Active problems</h2><a class="link" href="#/problems">See all</a></div>
@@ -898,7 +905,7 @@ async function renderEntry(id) {
       <div class="tl-tags">${painChip(e.pain)}${e.pain == null ? '<span class="tag">Pain not recorded</span>' : ''}${tagsOf(e)}</div>
       ${e.body ? `<section class="card"><div class="card-h"><h3>Your words</h3></div><p class="pre">${esc(e.body)}</p></section>` : ''}
       ${e.kind === 'day' ? `<dl class="card details">${field('Day', RATING[e.checkin?.rating])}${field('Sleep', [e.checkin?.sleep_h != null ? `${e.checkin.sleep_h} hours` : '', e.checkin?.sleep_q].filter(Boolean).join(', '))}${field('Energy', e.checkin?.energy)}${field('Mood', e.checkin?.mood)}</dl>` : ''}
-      ${e.kind === 'exercise' ? `<section class="card"><div class="card-h"><h3>Exercise</h3></div><p>${esc([e.exercise?.name, summaryOf({ ...e, body: '' })].filter(Boolean).join(': '))}</p></section>` : ''}
+      ${e.kind === 'exercise' && e.exercise?.items ? `<section class="card"><div class="card-h"><h3>${icon('dumbbell')} Routine: ${esc(e.exercise.name)}</h3></div>${e.exercise.items.length ? `<ul class="rt-done">${e.exercise.items.map((i) => `<li class="${i.done === false ? 'skip' : ''}">${icon(i.done === false ? 'down' : 'check')}<span>${esc(i.name)}${i.detail ? ` <small>${esc(i.detail)}</small>` : ''}${i.done === false ? ' <small>not done</small>' : ''}</span></li>`).join('')}</ul>` : ''}${e.exercise.minutes ? `<p class="muted small">${e.exercise.minutes} minutes</p>` : ''}</section>` : e.kind === 'exercise' ? `<section class="card"><div class="card-h"><h3>Exercise</h3></div><p>${esc([e.exercise?.name, summaryOf({ ...e, body: '' })].filter(Boolean).join(': '))}</p></section>` : ''}
       ${(e.symptoms?.length || (actsOf(e).length && e.kind !== 'exercise') || e.activity_detail || e.triggers || e.relief || e.impact) ? `<dl class="card details">
         ${field('Symptoms', (e.symptoms || []).join(', '))}${e.kind !== 'exercise' ? field('Doing', actsOf(e).join(', ')) : ''}${field('How long, how far', e.activity_detail)}${field('Trigger', e.triggers)}${field('What helped', e.relief)}${field('Impact', e.impact)}</dl>` : ''}
       ${(e.files || []).length ? `<div class="media">${e.files.map((f) => `<a class="media-item" href="${esc(urls[f.path] || '#')}" target="_blank" rel="noopener">${/^image\//.test(f.mime) && urls[f.path] ? `<img src="${esc(urls[f.path])}" alt="${esc(f.name)}">` : `<span class="media-file">${icon('file')}<small>${esc(f.name)}</small></span>`}</a>`).join('')}</div>` : ''}
@@ -915,24 +922,29 @@ async function renderEntry(id) {
   };
 }
 
-/* ---------- log exercise ---------- */
+/* ---------- log exercise: a routine (the usual way) or one exercise ---------- */
+const ROUTINE_NAMES = ['Stretching routine', 'Biokinetics exercises', 'Physio exercises', 'Morning stretches', 'Gym routine'];
 async function renderExercise() {
   const ps = params(); const editing = ps.get('e');
-  const [list, names, existing] = await Promise.all([problems.list().catch(() => []), entries.exerciseNames().catch(() => []), editing ? entries.get(editing) : null]);
+  const [list, names, existing, rts] = await Promise.all([problems.list().catch(() => []), entries.exerciseNames().catch(() => []), editing ? entries.get(editing) : null, routines.list().catch(() => [])]);
   const x = existing?.exercise || {};
   const pid = existing ? (existing.problem_id || 'none') : (ps.get('p') || list.find((p) => p.status === 'active')?.id || 'none');
+  let mode = existing ? (x.items ? 'routine' : 'single') : (ps.get('m') === 'single' ? 'single' : 'routine');
+  let rid = x.routine_id || ps.get('r') || (rts.length === 1 ? rts[0].id : '');
   shell({
     back: existing ? `#/e/${existing.id}` : (ps.get('p') ? `#/p/${pid}?t=exercise` : '#/'), tab: 'home',
     body: `<h1 class="h1">${editing ? 'Edit exercise' : 'Log exercise'}</h1>
       <form id="f" class="stack">
+        ${editing ? '' : `<div class="seg" role="radiogroup" id="mode"><button type="button" role="radio" data-k="routine" aria-checked="${mode === 'routine'}">A routine</button><button type="button" role="radio" data-k="single" aria-checked="${mode === 'single'}">One exercise</button></div>`}
         <label class="field">For<select name="problem">${list.filter((p) => p.status !== 'archived' || p.id === pid).map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}<option value="none" ${pid === 'none' ? 'selected' : ''}>General (not one problem)</option></select></label>
-        <div class="card stack">
-          <label class="field">Exercise<input name="name" list="names" required placeholder="e.g. Band external rotation, walk, aerobics" value="${esc(x.name || '')}"><datalist id="names">${names.map((k) => `<option value="${esc(k)}">`).join('')}</datalist></label>
+        <div id="routine" class="stack"></div>
+        <div class="card stack" id="single">
+          <label class="field">Exercise<input name="name" list="names" placeholder="e.g. Band external rotation, walk, aerobics" value="${esc(x.items ? '' : x.name || '')}"><datalist id="names">${names.map((k) => `<option value="${esc(k)}">`).join('')}</datalist></label>
           <div class="four">
             <label class="field">Sets<input name="sets" type="number" inputmode="numeric" min="0" value="${esc(x.sets ?? '')}"></label>
             <label class="field">Reps<input name="reps" type="number" inputmode="numeric" min="0" value="${esc(x.reps ?? '')}"></label>
             <label class="field">Kg<input name="weight" type="number" inputmode="decimal" min="0" step="0.5" value="${esc(x.weight ?? '')}"></label>
-            <label class="field">Min<input name="minutes" type="number" inputmode="decimal" min="0" value="${esc(x.minutes ?? '')}"></label>
+            <label class="field">Min<input name="minutes" type="number" inputmode="decimal" min="0" value="${esc(x.items ? '' : x.minutes ?? '')}"></label>
           </div>
           <label class="field">Distance km <span class="hint">optional</span><input name="km" type="number" inputmode="decimal" min="0" step="0.1" value="${esc(x.km ?? '')}"></label>
         </div>
@@ -947,16 +959,104 @@ async function renderExercise() {
     foot: `<div class="sticky-cta"><button class="btn primary big" id="save" form="f">${icon('check')} ${editing ? 'Save changes' : 'Save exercise'}</button></div>`,
   });
   const f = $('#f');
+  const back = encodeURIComponent(location.hash.replace(/^#/, ''));
+  const paintRoutine = () => {
+    const host = $('#routine');
+    if (!rts.length && !x.items) {
+      host.innerHTML = `<div class="card stack rt-intro"><h3>${icon('dumbbell')} Make your first routine</h3><p class="muted">A routine is a named set you do often, like a <b>stretching routine</b> (behind the back, up the wall…) or just <b>Biokinetics exercises</b>. Build it once, then log it in one tap.</p><a class="btn primary big" href="#/routine/new?back=${back}">${icon('plus')} New routine</a></div>`;
+      return;
+    }
+    const cur = rts.find((r) => r.id === rid);
+    // A routine entry being edited keeps its own items (the routine may have changed since).
+    const items = x.items && x.routine_id === rid ? x.items : (cur?.items || []).map((i) => ({ name: i.name, detail: i.detail || '', done: true }));
+    host.innerHTML = `<div class="card stack">
+      <div class="lbl">Which routine?</div>
+      <div class="rt-pick" role="radiogroup">${rts.map((r) => `<button type="button" role="radio" class="rt-opt" data-id="${r.id}" aria-checked="${r.id === rid}"><b>${esc(r.name)}</b><small>${r.items.length ? n(r.items.length, 'exercise') : 'No list, just the name'}</small></button>`).join('')}${x.items && !cur ? `<button type="button" role="radio" class="rt-opt" aria-checked="true"><b>${esc(x.name)}</b><small>as logged</small></button>` : ''}</div>
+      <div class="rt-links"><a href="#/routine/new?back=${back}">${icon('plus')} New routine</a>${cur ? `<a href="#/routine/${cur.id}?back=${back}">${icon('edit')} Edit “${esc(cur.name)}”</a>` : ''}</div>
+    </div>
+    ${rid || x.items ? `<div class="card stack">
+      ${items.length ? `<div class="lbl">What did you do? <span class="hint">untick anything you skipped</span></div>
+      <ul class="rt-check">${items.map((i, k) => `<li><label class="check"><input type="checkbox" data-k="${k}" ${i.done !== false ? 'checked' : ''}><span>${esc(i.name)}${i.detail ? `<small>${esc(i.detail)}</small>` : ''}</span></label></li>`).join('')}</ul>` : `<p class="muted">“${esc(cur?.name || x.name)}” has no list of exercises; it is logged by its name. You can add exercises to it any time.</p>`}
+      <label class="field">Minutes in total <span class="hint">optional</span><input name="rmin" type="number" inputmode="decimal" min="0" value="${esc(x.items ? x.minutes ?? '' : '')}"></label>
+    </div>` : ''}`;
+    host._items = items;
+    $$('.rt-opt[data-id]', host).forEach((b) => { b.onclick = () => { rid = b.dataset.id; paintRoutine(); }; });
+  };
+  const paintMode = () => {
+    $('#routine').hidden = mode !== 'routine'; $('#single').hidden = mode !== 'single';
+    f.name.required = mode === 'single';
+    if (mode === 'routine') paintRoutine();
+  };
+  $$('#mode button').forEach((b) => { b.onclick = () => { mode = b.dataset.k; $$('#mode button').forEach((y) => y.setAttribute('aria-checked', String(y === b))); paintMode(); }; });
+  paintMode();
   const when = whenPicker($('#when'), existing);
   const pain = painPicker($('#pain'), existing?.pain ?? null, 'Pain during or after');
   stopDictation.push(dictation($('#dict'), f.body));
   f.onsubmit = async (ev) => {
     ev.preventDefault();
-    const num = (v) => (v === '' ? null : Number(v));
+    const num = (v) => (v === '' || v == null ? null : Number(v));
     const w = when();
-    const row = { problem_id: f.problem.value === 'none' ? null : f.problem.value, kind: 'exercise', exercise: { name: f.name.value.trim(), sets: num(f.sets.value), reps: num(f.reps.value), weight: num(f.weight.value), minutes: num(f.minutes.value), km: num(f.km.value) }, body: f.body.value.trim(), pain: pain(), at: w.at, time_known: w.time_known, activity: 'Exercise', activities: ['Exercise'] };
+    let exercise;
+    if (mode === 'routine') {
+      const cur = rts.find((r) => r.id === rid);
+      if (!cur && !x.items) { $('.err').textContent = rts.length ? 'Choose a routine.' : 'Make a routine first, or log one exercise.'; return; }
+      const items = ($('#routine')._items || []).map((i, k) => ({ name: i.name, detail: i.detail || '', done: !!f.querySelector(`.rt-check input[data-k="${k}"]`)?.checked }));
+      exercise = { name: cur?.name || x.name, routine_id: cur?.id || x.routine_id || null, items, minutes: num(f.rmin?.value) };
+    } else exercise = { name: f.name.value.trim(), sets: num(f.sets.value), reps: num(f.reps.value), weight: num(f.weight.value), minutes: num(f.minutes.value), km: num(f.km.value) };
+    const row = { problem_id: f.problem.value === 'none' ? null : f.problem.value, kind: 'exercise', exercise, body: f.body.value.trim(), pain: pain(), at: w.at, time_known: w.time_known, activity: 'Exercise', activities: ['Exercise'] };
     const btn = $('#save'); busy(btn, true);
-    try { if (editing) await entries.update(editing, row); else await entries.create(row); toast('Exercise saved'); go(`#/p/${row.problem_id || 'none'}?t=exercise`); } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
+    try { if (editing) await entries.update(editing, row); else await entries.create(row); toast(mode === 'routine' ? 'Routine logged' : 'Exercise saved'); go(`#/p/${row.problem_id || 'none'}?t=exercise`); } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
+  };
+}
+
+/* ---------- build or edit a routine ---------- */
+async function renderRoutine(id) {
+  const ps = params(); const back = ps.get('back') ? `#${ps.get('back')}` : '#/exercise';
+  const [list, r] = await Promise.all([problems.list().catch(() => []), id ? routines.get(id) : null]);
+  let items = (r?.items || []).map((i) => ({ name: i.name, detail: i.detail || '' }));
+  const pid = r ? r.problem_id || 'none' : (list.find((p) => p.status === 'active')?.id || 'none');
+  shell({
+    back, tab: 'home',
+    body: `<h1 class="h1">${r ? 'Edit routine' : 'New routine'}</h1>
+      <p class="muted">Give it a name you will recognise. Add the exercises or stretches in it, or leave the list empty and just log it by name.</p>
+      <form id="f" class="stack">
+        <div class="card stack">
+          <label class="field">Name<input name="name" required maxlength="120" list="rnames" placeholder="e.g. Stretching routine, Jannie exercises" value="${esc(r?.name || '')}"><datalist id="rnames">${ROUTINE_NAMES.map((k) => `<option value="${esc(k)}">`).join('')}</datalist></label>
+          <label class="field">For<select name="problem">${list.filter((p) => p.status !== 'archived' || p.id === pid).map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}<option value="none" ${pid === 'none' ? 'selected' : ''}>General (not one problem)</option></select></label>
+        </div>
+        <div class="card stack">
+          <div class="lbl">Exercises in this routine <span class="hint">optional</span></div>
+          <ol class="rt-edit" id="items"></ol>
+          <button type="button" class="btn" id="additem">${icon('plus')} Add an exercise</button>
+        </div>
+        <label class="field">Notes <span class="hint">optional, e.g. who gave it to you</span><textarea name="note" rows="2" maxlength="2000">${esc(r?.note || '')}</textarea></label>
+        <p class="err" role="alert"></p>
+        ${r ? `<button type="button" class="btn danger wide" id="arch">${icon('trash')} Remove this routine</button><p class="small muted center">Removing it keeps every time you logged it.</p>` : ''}
+      </form>`,
+    foot: `<div class="sticky-cta"><button class="btn primary big" id="save" form="f">${icon('check')} Save routine</button></div>`,
+  });
+  const f = $('#f');
+  const read = () => { items = $$('#items li').map((li) => ({ name: li.querySelector('[data-f=name]').value, detail: li.querySelector('[data-f=detail]').value })); };
+  const paint = (focusLast = false) => {
+    $('#items').innerHTML = items.map((i, k) => `<li><div class="rt-row"><input data-f="name" aria-label="Exercise ${k + 1}" placeholder="e.g. Hand behind the back" value="${esc(i.name)}" maxlength="120"><input data-f="detail" aria-label="Sets, reps or time for exercise ${k + 1}" placeholder="3 × 10, 30 s hold…" value="${esc(i.detail)}" maxlength="80"></div>
+      <div class="rt-tools"><button type="button" class="icon-btn" data-up="${k}" aria-label="Move up" ${k ? '' : 'disabled'}>${icon('back')}</button><button type="button" class="icon-btn" data-rm="${k}" aria-label="Remove">${icon('trash')}</button></div></li>`).join('');
+    $$('#items [data-rm]').forEach((b) => { b.onclick = () => { read(); items.splice(+b.dataset.rm, 1); paint(); }; });
+    $$('#items [data-up]').forEach((b) => { b.onclick = () => { read(); const k = +b.dataset.up; [items[k - 1], items[k]] = [items[k], items[k - 1]]; paint(); }; });
+    if (focusLast) $$('#items [data-f=name]').pop()?.focus();
+  };
+  $('#additem').onclick = () => { read(); items.push({ name: '', detail: '' }); paint(true); };
+  paint();
+  $('#arch')?.addEventListener('click', async () => { if (!confirm('Remove this routine? Times you logged it stay in your journal.')) return; await routines.archive(r.id).catch((e) => toast(errMsg(e))); toast('Routine removed'); go(back); });
+  f.onsubmit = async (ev) => {
+    ev.preventDefault(); read();
+    const row = { name: f.name.value.trim(), problem_id: f.problem.value === 'none' ? null : f.problem.value, items: items.map((i) => ({ name: i.name.trim(), detail: i.detail.trim() })).filter((i) => i.name), note: f.note.value.trim() };
+    const btn = $('#save'); busy(btn, true);
+    try {
+      const saved = r ? await routines.update(r.id, row) : await routines.create(row);
+      toast('Routine saved');
+      const base = back.replace(/([?&])r=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
+      go(base.includes('/exercise') ? `${base}${base.includes('?') ? '&' : '?'}r=${saved.id}` : base);
+    } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
   };
 }
 
@@ -972,59 +1072,193 @@ async function renderTimeline() {
 }
 
 /* ---------- doctor summary ---------- */
-const RANGES = [['14d', 'Last 14 days', 14], ['1m', 'Last month', 30], ['3m', 'Last 3 months', 91], ['6m', 'Last 6 months', 182], ['all', 'Everything', 0], ['custom', 'Choose dates', -1]];
-
-const KINDS = {
-  feedback: { label: 'Feedback for me', line: 'For you: how things went, what seems to help or hurt, and suggestions to try or track.', button: 'Get my feedback', busy: 'Looking over your entries… (up to a minute or two)' },
-  clinician: { label: 'Summary for my doctor', line: 'For your doctor or physio: a short, dated summary in careful words. Every point links back to the entries it came from.', button: 'Create doctor summary', busy: 'Writing your summary… (up to a minute or two)' },
-};
+/* ---------- reports (v2): daily, weekly, monthly, yearly; one report, two versions ---------- */
+const RTYPES = [['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly'], ['year', 'Yearly']];
+const localTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+let reportCss = false;
+function ensureReportCss() {
+  if (reportCss) return; reportCss = true;
+  const st = document.createElement('style'); st.textContent = REPORT_CSS; document.head.append(st);
+}
 async function renderReports() {
-  const pid = params().get('p') || '';
-  const kind = params().get('kind') === 'clinician' ? 'clinician' : 'feedback';
-  const [list, past] = await Promise.all([problems.list().catch(() => []), reports.list(null).catch(() => [])]);
+  const ps = params();
+  const pid = ps.get('p') || '';
+  const [list, past, all] = await Promise.all([problems.list().catch(() => []), reports.list(null).catch(() => []), entries.list({ limit: 5000 }).catch(() => [])]);
   const chosen = pid || list.find((p) => p.status === 'active')?.id || '';
+  const tz = localTz();
+  const today = zoned(Date.now(), tz).key;
+  const firstYear = all.length ? +zoned(all[all.length - 1].at, tz).key.slice(0, 4) : +today.slice(0, 4);
+  let type = RTYPES.some(([k]) => k === ps.get('type')) ? ps.get('type') : 'week';
+  let anchor = today;
   shell({
     tab: 'reports',
     body: `<h1 class="h1">Reports</h1>
-      <div class="seg" role="tablist">${Object.entries(KINDS).map(([k, v]) => `<a role="tab" href="#/reports?kind=${k}${pid ? `&p=${pid}` : ''}" aria-selected="${k === kind}">${v.label}</a>`).join('')}</div>
-      <p class="muted">${KINDS[kind].line}</p>
+      <p class="muted">One report with two versions: <b>for your doctor</b> and <b>for you</b>. Charts and numbers come straight from your entries; Claude writes the explanations. You check it before it is final.</p>
       <form id="f" class="stack">
         <div class="card stack">
           <label class="field">About<select name="problem">${list.map((p) => `<option value="${p.id}" ${p.id === chosen ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}<option value="" ${!chosen ? 'selected' : ''}>All problems</option></select></label>
-          <div class="lbl">Reporting period</div>
-          <div class="chips" id="ranges">${RANGES.map(([k, l], i) => `<button type="button" class="chip-btn" data-k="${k}" aria-pressed="${i === 1}">${l}</button>`).join('')}</div>
-          <div class="two" id="custom" hidden><label class="field">From<input type="date" name="from"></label><label class="field">To<input type="date" name="to"></label></div>
-          ${kind === 'clinician' ? '<label class="field">Reason for this visit <span class="hint">optional</span><input name="reason" maxlength="300" placeholder="e.g. 6-week check after surgery"></label>' : '<label class="field">Anything you want it to look at? <span class="hint">optional</span><input name="reason" maxlength="300" placeholder="e.g. Is driving making it worse?"></label>'}
-          <label class="check"><input type="checkbox" name="withFiles"> Include photos, X-rays and scans (slower)</label>
+          <div class="field">Report<div class="seg" role="radiogroup" id="rtype">${RTYPES.map(([k, l]) => `<button type="button" role="radio" data-k="${k}" aria-checked="${k === type}">${l}</button>`).join('')}</div></div>
+          <div id="anchor"></div>
+          <div class="period-box" id="pbox" aria-live="polite"></div>
+          <label class="field">Anything it should look at? <span class="hint">optional</span><input name="reason" maxlength="300" placeholder="e.g. Is driving making it worse?"></label>
         </div>
         <div class="card consent">
-          <label class="check"><input type="checkbox" name="consent" required> <span>Send the entries and check-ins for this period to <b>Claude, Anthropic’s AI</b>, to write this report. Dr Pocket’s server does not keep a copy; the report is saved in your account.</span></label>
+          <label class="check"><input type="checkbox" name="consent" required> <span>Send the entries for this period to <b>Claude, Anthropic’s AI</b>, to write the explanations. Dr Pocket’s server does not keep a copy; the report is saved in your account.</span></label>
         </div>
         <p class="err" role="alert"></p>
-        <button class="btn primary big">${icon('sparkle')} ${KINDS[kind].button}</button>
+        <button class="btn primary big">${icon('sparkle')} Create report</button>
       </form>
-      ${past.length ? `<div class="sec-h"><h2>Earlier reports</h2></div><ul class="cards">${past.map((r) => `<li><a class="card prob" href="#/r/${r.id}"><div class="prob-h"><div><span class="eyebrow">${r.kind === 'clinician' ? 'Doctor summary' : 'Feedback'}</span><b>${esc(r.range_label)}</b><span class="muted small">Created ${esc(fmtDate(r.created_at))}</span></div>${icon('chevron')}</div>${r.headline ? `<span class="small">${esc(r.headline)}</span>` : ''}</a></li>`).join('')}</ul>` : ''}`,
+      ${past.length ? `<div class="sec-h"><h2>Earlier reports</h2></div><ul class="cards">${past.map((r) => `<li><a class="card prob" href="#/r/${r.id}"><div class="prob-h"><div><span class="eyebrow">${r.kind === 'feedback' ? 'Feedback (old style)' : /· (Daily|Weekly|Monthly|Yearly) ·/.test(r.range_label) ? 'Report' : 'Doctor summary (old style)'}</span><b>${esc(r.range_label)}</b><span class="muted small">Created ${esc(fmtDate(r.created_at))}</span></div>${icon('chevron')}</div>${r.headline ? `<span class="small">${esc(r.headline)}</span>` : ''}</a></li>`).join('')}</ul>` : ''}`,
   });
-  const f = $('#f'); let k = '1m';
-  $$('#ranges button').forEach((b) => { b.onclick = () => { k = b.dataset.k; $$('#ranges button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#custom').hidden = k !== 'custom'; }; });
+  const f = $('#f');
+  const paintAnchor = () => {
+    const host = $('#anchor');
+    if (type === 'day') host.innerHTML = `<label class="field">Day<input type="date" class="dt" name="a" max="${today}" value="${anchor}"></label>`;
+    else if (type === 'week') host.innerHTML = `<label class="field">Week ending on<input type="date" class="dt" name="a" max="${today}" value="${anchor}"></label>`;
+    else if (type === 'month') host.innerHTML = `<label class="field">Month<input type="month" class="dt" name="a" max="${today.slice(0, 7)}" value="${anchor.slice(0, 7)}"></label>`;
+    else { const ys = []; for (let y = +today.slice(0, 4); y >= Math.min(firstYear, +today.slice(0, 4)); y--) ys.push(y); host.innerHTML = `<label class="field">Year<select name="a">${ys.map((y) => `<option ${String(y) === anchor.slice(0, 4) ? 'selected' : ''}>${y}</option>`).join('')}</select></label>`; }
+    host.querySelector('[name=a]').onchange = (ev) => {
+      const v = ev.target.value; if (!v) return;
+      anchor = type === 'month' ? `${v}-${v === today.slice(0, 7) ? today.slice(8) : '01'}` : type === 'year' ? (v === today.slice(0, 4) ? today : `${v}-12-31`) : v;
+      if (type === 'month' && v !== today.slice(0, 7)) anchor = `${v}-01`;
+      paintBox();
+    };
+  };
+  const paintBox = () => {
+    const per = periodFor(type, anchor);
+    const scope = f.problem.value;
+    const src = all.filter((e) => !scope || e.problem_id === scope || e.kind === 'day');
+    const m = buildModel({ source: src, problems: list, problemId: scope || null, period: per, tz, now: Date.now() });
+    $('#pbox').innerHTML = `<b>${esc(m.label)}</b><span>${per.type === 'day' ? esc(dayWd(per.start)) : `${esc(dayWd(per.start))} ${per.start.slice(0, 4)} – ${esc(dayWd(per.end))} ${per.end.slice(0, 4)}`}</span><span class="${m.stats.entries ? '' : 'warn'}">${esc(coverageLine(m))}${m.stats.readings ? ` · ${n(m.stats.readings, 'pain reading')}` : ''}</span>`;
+    f.querySelector('.primary').disabled = !m.stats.entries;
+  };
+  $$('#rtype button').forEach((b) => { b.onclick = () => { type = b.dataset.k; $$('#rtype button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); if (type === 'month' || type === 'year') anchor = today; paintAnchor(); paintBox(); }; });
+  f.problem.onchange = paintBox;
+  paintAnchor(); paintBox();
   f.onsubmit = async (ev) => {
     ev.preventDefault();
-    const r = RANGES.find((x) => x[0] === k);
-    let from = null; let to = new Date(); let label = r[1];
-    if (r[2] > 0) { from = new Date(); from.setDate(from.getDate() - r[2]); }
-    if (k === 'custom') {
-      if (!f.from.value) { $('.err').textContent = 'Choose a start date.'; return; }
-      from = new Date(`${f.from.value}T00:00`); to = f.to.value ? new Date(`${f.to.value}T23:59:59`) : new Date();
-      label = `${fmtDate(from)} – ${fmtDate(to)}`;
-    }
-    const scope = f.problem.value;
-    const name = scope ? list.find((p) => p.id === scope)?.title : 'All problems';
-    const btn = f.querySelector('.primary'); busy(btn, true, KINDS[kind].busy); $('.err').textContent = '';
+    const btn = f.querySelector('.primary'); busy(btn, true, 'Writing your report… (up to a minute or two)'); $('.err').textContent = '';
     try {
-      const out = await reports.draw({ kind, problem: scope || null, from: from?.toISOString() || null, to: to.toISOString(), label: `${name} · ${label}`, reason: f.reason.value.trim(), withFiles: f.withFiles.checked, consent: true });
+      const out = await reports.draw({ type, anchor, problem: f.problem.value || null, reason: f.reason.value.trim(), consent: true });
       go(`#/r/${out.id}`);
     } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
   };
+}
+
+function statementsOf(nv, aud) {
+  const out = []; const x = nv?.[aud] || {};
+  const add = (field, label) => (x[field] || []).forEach((it, i) => out.push({ sid: `${aud}.${field}.${i}`, label: `${label}: ${it.activity ? `${it.activity}: ` : ''}${it.text}` }));
+  add('summary', 'Summary'); add('attention', 'Mention promptly'); add('harder_with', AUD_LABELS[aud][0]); add('easier_after', AUD_LABELS[aud][1]);
+  add('sequences', 'What happened'); add('function_effects', 'Effect'); add('treatments', 'Treatment'); add('changes', 'Change');
+  return out;
+}
+const AUD_LABELS = { doctor: ['Discomfort reported with', 'Relief reported after'], me: ['Harder with', 'Easier after'] };
+const clip = (s, k = 70) => (s.length > k ? `${s.slice(0, k - 1).trim()}…` : s);
+const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+async function renderReport2(r) {
+  ensureReportCss();
+  const id = r.id; let c = r.content;
+  const aud = params().get('a') === 'me' ? 'me' : 'doctor';
+  const model = () => buildModel({ source: c.source, problems: c.problems, problemId: c.problem_id, period: periodFor(c.period.type, c.period.end), tz: c.tz, now: c.generated_at, earlier: c.earlier, corrections: c.review?.corrections || [] });
+  const m = model();
+  const rv = { status: 'draft', additions: [], corrections: [], ...(c.review || {}) };
+  const pending = rv.corrections.filter((x) => x.status === 'pending');
+  const confirmed = rv.status === 'confirmed';
+  const canShareFiles = (() => { try { return !!navigator.canShare?.({ files: [new File([''], 'a.pdf', { type: 'application/pdf' })] }); } catch { return false; } })();
+  shell({
+    back: '#/reports', tab: 'reports',
+    body: `
+      <div class="rv-top">
+        <div class="seg" role="tablist" aria-label="Version">${[['doctor', 'For my doctor'], ['me', 'For me']].map(([k, l]) => `<a role="tab" href="#/r/${id}${k === 'me' ? '?a=me' : ''}" aria-selected="${k === aud}">${l}</a>`).join('')}</div>
+        <span class="rv-badge ${confirmed ? 'ok' : 'draft'}">${confirmed ? `${icon('check')} Reviewed` : 'Draft'}</span>
+      </div>
+      ${confirmed ? '' : `<button type="button" class="rv-jump" id="jump"><span>${pending.length ? 'A correction is waiting for you to confirm.' : 'Read it through, then tell us if it is accurate.'}</span><b>Review ↓</b></button>`}
+      <div id="doc">${reportHTML(m, c.narrative, { audience: aud, review: rv, generatedAt: c.generated_at })}</div>
+      <section class="card review no-print" id="review">
+        ${pending.length ? `<h3>${n(pending.length, 'correction')} waiting</h3>
+          <p>Confirm to update the summaries, graphs and statistics with your correction. Your original entries stay as they are, and the correction is listed in the report.</p>
+          <p class="small muted">This sends the entries and your correction to Claude again to rewrite the explanations.</p>
+          <div class="row-btns"><button class="btn primary big" id="apply">${icon('check')} Confirm and update report</button><button class="btn big" id="discard">Discard</button></div>`
+        : `<h3>${confirmed ? `Reviewed by you on ${esc(fmtDate(rv.confirmed_at))}` : 'Does this report accurately reflect your experience? Is there anything you’d like your doctor to know?'}</h3>
+          ${confirmed ? '<p class="muted small">You can still add or correct something; the report then goes back to draft until you confirm it again. Reviewed means you checked it, not that a clinician verified it.</p>' : ''}
+          <div class="row-btns">${confirmed ? '' : `<button class="btn primary big" id="finish">${icon('check')} Looks accurate — finish</button>`}<button class="btn big" id="addfix">${icon('edit')} Add or correct something</button></div>`}
+        <form id="fix" class="stack" hidden>
+          <div class="seg" role="radiogroup" id="fixkind"><button type="button" role="radio" data-k="add" aria-checked="true">Add context</button><button type="button" role="radio" data-k="fix" aria-checked="false">Correct something</button></div>
+          <div id="fixwhat" class="stack" hidden>
+            <label class="field">What is wrong?<select name="target"><option value="">Choose…</option>
+              <optgroup label="A journal entry">${m.rows.map((row) => `<option value="entry:${row.ref}">${esc(`${row.ref} · ${dayShort(row.key)}${row.timed ? ` ${row.time}` : ''} · ${clip(row.e.body || activityPhrase(row.e) || 'entry', 48)}`)}</option>`).join('')}</optgroup>
+              <optgroup label="A statement in this report">${statementsOf(c.narrative, aud).map((s) => `<option value="statement:${s.sid}">${esc(clip(s.label, 80))}</option>`).join('')}</optgroup>
+            </select></label>
+            <label class="field" id="painfix" hidden>Pain score for this entry<select name="pain"><option value="keep">Keep as recorded</option>${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => `<option value="${v}">${v}/10</option>`).join('')}<option value="none">No score (remove it)</option></select></label>
+          </div>
+          <label class="field">What would you like to add or correct?<textarea name="text" rows="4" required placeholder="In your own words"></textarea></label>
+          <div id="fixdict"></div>
+          <p class="err" role="alert"></p>
+          <div class="row-btns"><button class="btn primary big" id="fixsave">${icon('check')} Add to report</button><button type="button" class="btn big" id="fixcancel">Cancel</button></div>
+        </form>
+      </section>
+      <div class="row-btns no-print">
+        <button class="btn primary big" id="dl" ${confirmed ? '' : 'disabled'}>${icon('download')} Download PDF</button>
+        ${canShareFiles ? `<button class="btn big" id="share" ${confirmed ? '' : 'disabled'}>${icon('share')} Share</button>` : ''}
+      </div>
+      ${confirmed ? '' : '<p class="small muted center no-print">Finish your review to download or share this report.</p>'}
+      <button class="btn danger wide no-print" id="del">${icon('trash')} Delete this report</button>`,
+  });
+  $('#jump')?.addEventListener('click', () => $('#review').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  const save = async (review) => { c = { ...c, review }; await reports.saveContent(id, c); };
+  // Tapping a source link (E3) or a day on the month chart scrolls to the entries in the table.
+  const flash = (row) => { if (!row) return; row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1600); };
+  $('#doc').addEventListener('click', (ev) => {
+    const a = ev.target.closest('a.ref'); if (a) { ev.preventDefault(); flash($(`#src-${a.dataset.ref}`)); return; }
+    const d = ev.target.closest('[data-day]'); if (d && d.tagName !== 'TR') { flash($(`.rd-table tr[data-day="${d.dataset.day}"]`)); return; }
+    const mo = ev.target.closest('rect[data-month]'); if (mo) { const det = $(`.rd-months details[data-month="${mo.dataset.month}"]`); if (det) { det.open = true; det.scrollIntoView({ behavior: 'smooth', block: 'center' }); } }
+  });
+  $('#finish')?.addEventListener('click', async (ev) => { busy(ev.currentTarget, true, 'Saving…'); await save({ ...rv, status: 'confirmed', confirmed_at: new Date().toISOString() }).catch((e) => toast(errMsg(e))); toast('Report finished'); route(); });
+  $('#discard')?.addEventListener('click', async () => { await save({ ...rv, corrections: rv.corrections.filter((x) => x.status !== 'pending') }); route(); });
+  $('#apply')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget; busy(btn, true, 'Updating your report… (up to a minute or two)');
+    try { await reports.draw({ action: 'regenerate', id, consent: true }); toast('Report updated'); route(); } catch (err) { busy(btn, false); toast(errMsg(err)); }
+  });
+  const fix = $('#fix'); let fkind = 'add';
+  $('#addfix')?.addEventListener('click', () => { fix.hidden = false; $('#addfix').hidden = true; fix.text.focus(); });
+  $('#fixcancel').onclick = () => { fix.hidden = true; if ($('#addfix')) $('#addfix').hidden = false; };
+  $$('#fixkind button').forEach((b) => { b.onclick = () => { fkind = b.dataset.k; $$('#fixkind button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); $('#fixwhat').hidden = fkind !== 'fix'; $('#fixsave').lastChild.textContent = fkind === 'fix' ? ' Save correction' : ' Add to report'; }; });
+  fix.target.onchange = () => { $('#painfix').hidden = !fix.target.value.startsWith('entry:'); };
+  stopDictation.push(dictation($('#fixdict'), fix.text));
+  fix.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const text = fix.text.value.trim(); if (!text) return;
+    const now = new Date().toISOString(); const uid = Math.random().toString(36).slice(2, 10);
+    let review;
+    if (fkind === 'add') review = { ...rv, status: 'draft', confirmed_at: null, additions: [...rv.additions, { id: uid, at: now, text }] };
+    else {
+      const [t, key] = fix.target.value.split(':');
+      if (!t) { $('#fix .err').textContent = 'Choose what the correction is about.'; return; }
+      const target = t === 'entry'
+        ? (() => { const row = m.byRef[key]; return { type: 'entry', ref: key, id: row.id, original: row.painOriginal, label: `${key}, ${dayShort(row.key)}${row.timed ? ` ${row.time}` : ''}: “${clip(row.e.body || activityPhrase(row.e) || 'entry', 60)}”` }; })()
+        : { type: 'statement', sid: key, label: `“${clip(statementsOf(c.narrative, aud).find((s) => s.sid === key)?.label || key, 120)}”` };
+      const corr = { id: uid, at: now, target, text, status: 'pending' };
+      if (t === 'entry' && fix.pain.value !== 'keep') corr.pain = fix.pain.value === 'none' ? null : Number(fix.pain.value);
+      review = { ...rv, status: 'draft', confirmed_at: null, corrections: [...rv.corrections, corr] };
+    }
+    const btn = $('#fixsave'); busy(btn, true, 'Saving…');
+    try { await save(review); toast(fkind === 'add' ? 'Added to the report' : 'Correction saved'); route(); } catch (err) { busy(btn, false); $('#fix .err').textContent = errMsg(err); }
+  };
+  const getPdf = async (btn) => {
+    busy(btn, true, 'Making the PDF…');
+    try { const blob = await reports.pdf(id, aud); return new File([blob], `Dr-Pocket-${m.period.type}-report-${m.period.start}${aud === 'me' ? '-for-me' : '-for-doctor'}.pdf`, { type: 'application/pdf' }); }
+    finally { busy(btn, false); }
+  };
+  $('#dl').onclick = async (ev) => {
+    try {
+      const file = await getPdf(ev.currentTarget);
+      if (isIOS() && canShareFiles) { await navigator.share({ files: [file], title: 'Dr Pocket report' }).catch(() => {}); return; }
+      const url = URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) { toast(errMsg(err)); }
+  };
+  $('#share')?.addEventListener('click', async (ev) => { try { const file = await getPdf(ev.currentTarget); await navigator.share({ files: [file], title: 'Dr Pocket report' }).catch(() => {}); } catch (err) { toast(errMsg(err)); } });
+  $('#del').onclick = async () => { if (!confirm('Delete this report? Your entries stay.')) return; await reports.remove(id).catch(() => {}); go('#/reports'); };
 }
 
 function weeklyChart(series) {
@@ -1045,6 +1279,7 @@ function weeklyChart(series) {
 async function renderReport(id) {
   let r;
   try { r = await reports.get(id); } catch { return go('#/reports'); }
+  if (r.content?.v === 2) return renderReport2(r);
   if (r.kind === 'feedback') return renderFeedback(r);
   const c = r.content || {}; const s = c.stats || {};
   const refs = c.refs || {};
@@ -1230,6 +1465,7 @@ async function route() {
       case 'e': return await renderEntry(parts[1]);
       case 'add': return await renderAdd();
       case 'exercise': return await renderExercise();
+      case 'routine': return await renderRoutine(parts[1] === 'new' ? null : parts[1]);
       case 'timeline': return await renderTimeline();
       case 'reports': case 'report': return await renderReports();
       case 'r': return await renderReport(parts[1]);

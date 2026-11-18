@@ -3,7 +3,7 @@
  * 21:00 reminder. It caches no app code, so an installed Dr Pocket is never stuck on an old version.
  * The one thing kept is a small "No connection" page, shown instead of the browser's error.
  */
-const OFFLINE = 'drpocket-offline-v4';
+const OFFLINE = 'drpocket-offline-v5';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(OFFLINE).then((c) => c.addAll(['/offline.html', '/icons/icon-192.png'])));

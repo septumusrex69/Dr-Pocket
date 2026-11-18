@@ -15,7 +15,8 @@ Where the project stands, how it fits together, and what comes next. README.md c
 - **Database:** Supabase project "Dr Pocket" (`lpdvppqtpatbzvrrgdnr`, eu-west-3, org Team Raptor, Pro plan).
 - **Vercel environment variables (all sensitive):** `ANTHROPIC_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`.
   The same `CRON_SECRET` is stored in the database table `private.app_secrets` (name `cron`).
-- **Last change:** `57adc71` "App icon: silver with faint flowing lines and the glossy cross". Deployed.
+- **Last change (18 Nov):** the new reporting feature (daily/weekly/monthly/yearly reports, two versions, patient
+  review, PDF export) and exercise routines. Deployed to main.
 - **The user's account:** one user so far (the owner). One problem, "Right Sholder" (the typo is the user's own title).
 
 ## Open items
@@ -33,6 +34,9 @@ Where the project stands, how it fits together, and what comes next. README.md c
 3. **Not checked on a real iPhone yet:** pinch-to-zoom on the pain chart, the full-width fix (pages used to be
    shrunk by Safari; see Gotchas), and the sideways (landscape) layout.
 4. **Older plan points not built:** optional auto-delete of data (never / 6 months / 1 year).
+5. **Reports not yet run against the real Claude API and the real Vercel Chromium by a person:** both were tested
+   with stand-ins (see Testing). The PDF engine has a self-check: `GET /api/report-pdf?check=1` returns a sample PDF
+   with no personal data. The first real report will show whether Claude's wording stays inside the rules.
 
 ## My health (`/health/`)
 
@@ -83,19 +87,53 @@ Show screenshots of visual changes before going live, and keep explanations plai
   A note saved "just now" within 15 minutes of the last note on the same problem is merged into it (asked for after
   a note and its pain score became two entries).
 - **Entry page:** original words, all fields, written-down time, edit history ("earlier versions").
-- **Log exercise:** name (remembers previous names), sets, reps, kg, minutes, km, when, pain during/after, notes.
+- **Log exercise** (`#/exercise`): two ways. **A routine** (default): pick one of your routines, untick anything
+  skipped, optional total minutes. **One exercise**: name (remembers previous names), sets, reps, kg, min, km.
+  Both: when, pain during/after, notes with dictation.
+- **Routines** (`#/routine/new`, `#/routine/<id>`; added 18 Nov): a named set of exercises or stretches, built once
+  ("Stretching routine": hand behind the back, fingers up the wall…, each with optional sets/reps/hold), or just a
+  name with no list ("Jannie exercises", "Biokinetics exercises"). Reorder, remove, notes. Removing a routine
+  archives it; logged sessions stay. A logged routine is an ordinary `kind='exercise'` entry with
+  `exercise = { name, routine_id, items: [{ name, detail, done }], minutes }`, so reports and the timeline read it.
 - **End-of-day check-in** (`#/checkin`): "your day so far" summary (on the device), day rating 1–5, overall pain,
   sleep hours and quality, energy, mood, a line of words. Saved as a `kind='day'` entry (General, no problem).
 - **Evening reminder:** 21:00 South African time. Vercel cron `0 19 * * *` → `api/evening.js` calls the database
   function `evening_digest(secret)` (per device: today's counts only, never words; skips people who already did
   the check-in) and sends web push (`web-push`, VAPID). The notification opens the check-in. Devices subscribe in
   Settings (rows in `push_subscriptions`). iPhone: only from the Home Screen app, iOS 16.4+.
-- **Reports tab, two kinds** (Claude runs only after the consent tick; both cite entries E1…, include check-ins,
-  link every point to its entry, Copy / PDF):
-  - **Feedback for me** (`reports.kind='feedback'`): headline, how it went, going well, harder, patterns recorded
-    together, ideas to try (each with why), what to track, questions for the clinician, urgent, not recorded.
-  - **Summary for my doctor** (`clinician`): reason for visit, overview, chronology, changes, limitations,
-    activities and exercise, triggers and relief, questions, urgent, not recorded; weekly pain chart; Share.
+- **Reports** (rebuilt 18 Nov to the owner's reporting brief; reference PDFs were "Improved doctor/personal report"):
+  - **Picker:** About (problem or all), Daily / Weekly / Monthly / Yearly, a date (day; week ending on a day =
+    the 7 days up to it; calendar month; calendar year). A live box shows the period, start and end, and coverage
+    ("Entries recorded on 5 of 7 days · 12 days still to come") worked out on the device before anything is sent.
+  - **One report, two versions** from the same data: "For my doctor" (concise, neutral) and "For me" (plain,
+    supportive). Toggle at the top of the report. One Claude call writes both.
+  - **Order:** identity and range → pain graphs → summary and stat cards → activities, symptoms and events →
+    questions and missing information → patient additions and clarifications → chronological source table.
+  - **Graphs** (SVG, 0–10 always): daily = 00–24 h with real times; weekly = seven day panels ("No entries",
+    "Pain not scored", "Still to come"); monthly = daily average recorded pain with lowest–highest bar, readings per
+    day and a coverage row; yearly = monthly average (mean of daily averages) with coverage per month and a
+    monthly detail table (plus a daily chart per month on screen). Lines break across missing days and gaps over
+    6 h; untimed readings sit in a "No time" column; check-ins are square markers.
+  - **Significant events** are found in code, max 4 on the charts with numbered orange badges, explained right
+    below: first-ever notable symptom (tingling, numbness, weakness, swelling, spreading pain, locking), highest
+    recorded pain (with what came before it, or "timing unclear" for untimed same-day activities), sleep
+    disturbance (grouped when on many days), biggest rise of 3+ points within 24 h.
+  - **Grounding:** every number is calculated in `src/health/report.js`; Claude only writes explanations, each with
+    E-number refs; the server drops any statement whose refs do not exist. Tapping an E-number scrolls to the row.
+  - **Patient review:** after reading: "Does this report accurately reflect your experience? Is there anything
+    you'd like your doctor to know?" → "Looks accurate — finish" or "Add or correct something" (typed or dictated).
+    Added context goes straight into section 05. A correction names an entry (optionally with a corrected pain
+    score) or a report statement; it waits as "pending" until the person taps "Confirm and update report", which
+    recalculates the stats and charts and asks Claude to rewrite (old wording kept in `content.versions`). The
+    original entry is never changed; the table shows both values. Reports are Drafts until confirmed; download and
+    share are only allowed once confirmed ("reviewed by the patient, not verified by a clinician").
+  - **PDF:** `api/report-pdf.js` renders the very same HTML in headless Chromium (`@sparticuz/chromium` +
+    `puppeteer-core`, Montserrat and the logo embedded), A4, table headers repeat on each page, rows kept whole,
+    footer with report type, range and page numbers. On iPhone the PDF opens the share sheet (Save to Files, Mail,
+    WhatsApp); elsewhere it downloads.
+  - **Storage:** `reports.content.v = 2` holds the period, time zone, generation time, a snapshot of the entries
+    used (`source`), the narrative, the review (additions, corrections) and earlier versions. Older reports
+    (feedback / doctor summary from 16–17 Nov) still open in their old layout.
 - **Dictation** (`src/health/dictate.js`): the browser's own speech recognition (free; en-ZA, af-ZA, en-GB), keeps
   listening through pauses. Fixed 17 Nov: on iPhone Safari words are rarely marked "final" until the session ends,
   and Stop used to keep only the final words (2–3 words). Now the text on screen is what is kept, pauses carry on,
@@ -111,6 +149,7 @@ Show screenshots of visual changes before going live, and keep explanations plai
   schema `private` with `app_secrets`; functions `evening_digest`, `drop_push_subscription` (secret-checked).
 - `0004_activities.sql`: `entries.activities[]` and `activity_detail`; `activity` kept as the joined text so older
   code still reads it; history trigger includes them.
+- `0005_routines.sql`: `routines` (name, problem, `items` jsonb [{name, detail}], note, archived), RLS owner-only.
 - The 8 entries copied from the user's phone notes (14–16 Nov) have `time_known=false` (the notes had dates only).
 
 ### Code (`health/index.html`, `src/health/`, `api/`)
@@ -119,13 +158,15 @@ Show screenshots of visual changes before going live, and keep explanations plai
 |---|---|
 | `health/index.html` | Page shell, manifest and icons, Montserrat, pre-paint appearance script |
 | `src/health/app.js` | All screens and routing (hash routes), the pain chart, timeline, forms, reports, settings, push sign-up |
-| `src/health/db.js` | Every Supabase read and write; `reports.draw` calls `/api/progress` |
+| `src/health/db.js` | Every Supabase read and write; `reports.draw` calls `/api/progress`, `reports.pdf` calls `/api/report-pdf`; `routines` |
+| `src/health/report.js` | Reports, the deterministic half: periods and time zones, the model (days, months, stats, events, activities), SVG charts, the report HTML and its CSS. Used by the app, `api/progress.js` and `api/report-pdf.js` alike |
 | `src/health/config.js` | Supabase URL and publishable key, storage bucket, VAPID public key (all public by design) |
 | `src/health/dictate.js` | Dictation |
 | `src/health/icons.js` | Line icons; `mark()` and `lockup()` use the logo files in `public/brand/` |
 | `src/health/appearance.js` | Light / Dark / High contrast / System |
 | `src/health/health.css` | All My health styles, tokens per appearance |
-| `api/progress.js` | Both report kinds (Claude Opus 5.5 via `api/_shared.js`, structured output, consent required) |
+| `api/progress.js` | Creates a report (both versions in one Claude Opus 5.5 call, structured output, consent required) or rewrites one after confirmed corrections (`action: 'regenerate'`) |
+| `api/report-pdf.js`, `api/_pdf.js`, `api/_font.js`, `api/_logo.js` | PDF export of confirmed reports; Chromium launcher; embedded Montserrat and logo. `vercel.json` gives it 60 s, 2 GB and includes the Chromium files |
 | `api/evening.js` | The 21:00 reminder sender |
 | `public/manifest.webmanifest`, `public/sw.js`, `public/offline.html` | Installable app; the service worker caches no app code (as in Remus), shows an offline page, and handles push |
 | `public/brand/` | Logo master files and their README |
@@ -198,6 +239,12 @@ Show screenshots of visual changes before going live, and keep explanations plai
   - Dictation was tested with a fake recogniser that behaves like iPhone Safari (nothing final, repeated phrases,
     a pause that restarts the session).
   - Check a deploy with the Vercel deployments list.
+  - Reports (18 Nov): a Node script renders every report type to PDF from the owner's real journal (read-only copy)
+    and from 137 synthetic entries (gaps, long notes, untimed readings, check-ins, routines, a 00:30 entry), using
+    local Chromium (`CHROME_PATH`); the PDFs were inspected as images. The API was run with stubbed Supabase and
+    Anthropic (`fetch` intercepted). The app was driven in Playwright (iPhone 13, light and dark) with Supabase
+    calls answered by Playwright routes, so no test account was needed: create → add context → correct a score →
+    confirm and update → finish → download, plus building and logging routines.
 
 ## Ideas not yet built
 

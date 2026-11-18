@@ -11,6 +11,11 @@
     },
     "api/evening.js": {
       "maxDuration": 60
+    },
+    "api/report-pdf.js": {
+      "maxDuration": 60,
+      "memory": 2048,
+      "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
     }
   },
   "headers": [
