@@ -154,11 +154,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .nav .nav-add .i{width:46px;height:46px;padding:11px;margin-top:-18px;border-radius:50%;background:var(--cta);color:#fff;box-shadow:0 6px 18px rgba(0,111,127,.35)}
 :root[data-appearance="dark"] .nav .nav-add .i{color:#04202E}
 .nav .nav-add{color:var(--ink)}
-@media (min-width:820px){.nav{left:50%;right:auto;transform:translateX(-50%);width:560px;bottom:14px;border:var(--border) solid var(--line);border-radius:20px;padding-bottom:6px}}
+@media (min-width:820px) and (min-height:600px){.nav{left:50%;right:auto;transform:translateX(-50%);width:560px;bottom:14px;border:var(--border) solid var(--line);border-radius:20px;padding-bottom:6px}}
 .sticky-cta{position:fixed;left:0;right:0;bottom:calc(68px + env(safe-area-inset-bottom));z-index:11;padding:10px max(16px,env(safe-area-inset-right)) 8px max(16px,env(safe-area-inset-left));
   background:linear-gradient(180deg,transparent,var(--bg) 35%)}
 .sticky-cta .btn{width:100%;max-width:608px;margin:0 auto;display:flex;box-shadow:0 8px 20px rgba(0,111,127,.25)}
-@media (min-width:820px){.sticky-cta{bottom:86px}}
+@media (min-width:820px) and (min-height:600px){.sticky-cta{bottom:86px}}
 
 /* ---------- home ---------- */
 .greet{padding:4px 2px}
@@ -351,6 +351,27 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .toast{position:fixed;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-size:.9em;font-weight:500;z-index:30;box-shadow:0 8px 24px rgba(11,35,66,.25)}
 
 @media (max-width:370px){.four{grid-template-columns:1fr 1fr}.tools{grid-template-columns:1fr 1fr 1fr}}
+/* ---------- phone turned sideways ---------- */
+@media (orientation:landscape) and (max-height:520px){
+  .page{max-width:none;padding-left:max(24px,env(safe-area-inset-left));padding-right:max(24px,env(safe-area-inset-right))}
+  .top{padding-top:4px;padding-bottom:4px}
+  .nav{padding-top:3px;padding-bottom:calc(3px + env(safe-area-inset-bottom))}
+  .nav a{flex-direction:row;justify-content:center;gap:6px;min-height:40px;font-size:.74em}
+  .nav .nav-add .i{width:36px;height:36px;padding:8px;margin-top:0}
+  .signed-in .page{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  .signed-in.has-cta .page{padding-bottom:calc(128px + env(safe-area-inset-bottom))}
+  /* little height to spare: the bottom bar's Add Note does the job, except on forms that need their Save button */
+  .sticky-cta:has(a){display:none}
+  .signed-in.has-cta:has(.sticky-cta a) .page{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  .sticky-cta{bottom:calc(48px + env(safe-area-inset-bottom));padding-top:6px;padding-bottom:4px}
+  .sticky-cta .btn{max-width:none;min-height:44px}
+  .toast{bottom:calc(110px + env(safe-area-inset-bottom))}
+  /* side by side where it helps on a wide, short screen */
+  .quick{grid-template-columns:1fr 1fr}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+  .stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .media{grid-template-columns:repeat(5,1fr)}
+}
 @media print{
   .top,.nav,.sticky-cta,.no-print,.toast,.btn,.seg,.ptabs{display:none!important}
   body{background:#fff;color:#000;font-size:12pt}

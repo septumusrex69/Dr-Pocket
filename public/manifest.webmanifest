@@ -6,7 +6,7 @@
   "start_url": "/health/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#EEF2F4",
   "theme_color": "#FFFFFF",
   "icons": [
