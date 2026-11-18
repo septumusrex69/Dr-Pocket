@@ -1094,7 +1094,7 @@ async function renderReports() {
   shell({
     tab: 'reports',
     body: `<h1 class="h1">Reports</h1>
-      <p class="muted">One report with two versions: <b>for your doctor</b> and <b>for you</b>. Charts and numbers come straight from your entries; Claude writes the explanations. You check it before it is final.</p>
+      <p class="muted">One report you can read and show your doctor or physio, plus a short <b>For you</b> section with tips (in the app only). Charts and numbers come straight from your entries; Claude writes the explanations. You check it before it is final.</p>
       <form id="f" class="stack">
         <div class="card stack">
           <label class="field">About<select name="problem">${list.map((p) => `<option value="${p.id}" ${p.id === chosen ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}<option value="" ${!chosen ? 'selected' : ''}>All problems</option></select></label>
@@ -1154,6 +1154,20 @@ function statementsOf(nv, aud) {
   add('sequences', 'What happened'); add('function_effects', 'Effect'); add('treatments', 'Treatment'); add('changes', 'Change');
   return out;
 }
+// The person's own short section (in the app only, never in the PDF). Older two-version reports fall back to their "For me" text.
+function forYouCard(nv, m) {
+  const y = nv?.for_you || (nv?.me ? { summary: nv.me.summary?.slice(0, 2), easier_after: nv.me.easier_after?.slice(0, 3), harder_with: nv.me.harder_with?.slice(0, 3), questions: nv.me.questions?.slice(0, 4), track_next: nv.me.track_next?.slice(0, 4) } : null);
+  if (!y) return '';
+  const refs = (ids) => (ids || []).filter((k) => m.byRef[k]).map((k) => `<a class="ref" href="#src-${k}" data-ref="${k}">${k}</a>`).join('');
+  const acts = (title, arr, cls) => (arr?.length ? `<div class="fy-col ${cls}"><div class="fy-h">${title}</div>${arr.map((it) => `<p><b>${esc(it.activity)}</b> ${esc(it.text)} ${refs(it.refs)}</p>`).join('')}</div>` : '');
+  const list = (title, arr) => (arr?.length ? `<div class="fy-h">${title}</div><ul class="plain">${arr.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : '');
+  return `<section class="card for-you no-print" id="foryou"><div class="card-h"><h3>${icon('sparkle')} For you</h3><span class="hint">only in the app, not in the PDF</span></div>
+    ${y.summary?.length ? `<p>${y.summary.map((it) => `${esc(it.text)} ${refs(it.refs)}`).join(' ')}</p>` : ''}
+    ${y.easier_after?.length || y.harder_with?.length ? `<div class="fy-cols">${acts('Easier after', y.easier_after, 'good')}${acts('Harder with', y.harder_with, 'bad')}</div>` : ''}
+    ${list('Questions to ask your doctor or physio', y.questions)}
+    ${list('What to track next', y.track_next)}
+  </section>`;
+}
 const AUD_LABELS = { doctor: ['Discomfort reported with', 'Relief reported after'], me: ['Harder with', 'Easier after'] };
 const clip = (s, k = 70) => (s.length > k ? `${s.slice(0, k - 1).trim()}…` : s);
 const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1161,7 +1175,7 @@ const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.pla
 async function renderReport2(r) {
   ensureReportCss();
   const id = r.id; let c = r.content;
-  const aud = params().get('a') === 'me' ? 'me' : 'doctor';
+  const aud = 'doctor'; // one report since 18 Nov 2026; the person's own tips are the "For you" card below
   const model = () => buildModel({ source: c.source, problems: c.problems, problemId: c.problem_id, period: periodFor(c.period.type, c.period.end), tz: c.tz, now: c.generated_at, earlier: c.earlier, corrections: c.review?.corrections || [] });
   const m = model();
   const rv = { status: 'draft', additions: [], corrections: [], ...(c.review || {}) };
@@ -1172,11 +1186,12 @@ async function renderReport2(r) {
     back: '#/reports', tab: 'reports',
     body: `
       <div class="rv-top">
-        <div class="seg" role="tablist" aria-label="Version">${[['doctor', 'For my doctor'], ['me', 'For me']].map(([k, l]) => `<a role="tab" href="#/r/${id}${k === 'me' ? '?a=me' : ''}" aria-selected="${k === aud}">${l}</a>`).join('')}</div>
+        <p class="eyebrow">Report</p>
         <span class="rv-badge ${confirmed ? 'ok' : 'draft'}">${confirmed ? `${icon('check')} Reviewed` : 'Draft'}</span>
       </div>
       ${confirmed ? '' : `<button type="button" class="rv-jump" id="jump"><span>${pending.length ? 'A correction is waiting for you to confirm.' : 'Read it through, then tell us if it is accurate.'}</span><b>Review ↓</b></button>`}
       <div id="doc">${reportHTML(m, c.narrative, { audience: aud, review: rv, generatedAt: c.generated_at })}</div>
+      ${forYouCard(c.narrative, m)}
       <section class="card review no-print" id="review">
         ${pending.length ? `<h3>${n(pending.length, 'correction')} waiting</h3>
           <p>Confirm to update the summaries, graphs and statistics with your correction. Your original entries stay as they are, and the correction is listed in the report.</p>
@@ -1211,6 +1226,7 @@ async function renderReport2(r) {
   const save = async (review) => { c = { ...c, review }; await reports.saveContent(id, c); };
   // Tapping a source link (E3) or a day on the month chart scrolls to the entries in the table.
   const flash = (row) => { if (!row) return; row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1600); };
+  $('#foryou')?.addEventListener('click', (ev) => { const a = ev.target.closest('a.ref'); if (a) { ev.preventDefault(); flash($(`#src-${a.dataset.ref}`)); } });
   $('#doc').addEventListener('click', (ev) => {
     const a = ev.target.closest('a.ref'); if (a) { ev.preventDefault(); flash($(`#src-${a.dataset.ref}`)); return; }
     const d = ev.target.closest('[data-day]'); if (d && d.tagName !== 'TR') { flash($(`.rd-table tr[data-day="${d.dataset.day}"]`)); return; }
@@ -1249,7 +1265,7 @@ async function renderReport2(r) {
   };
   const getPdf = async (btn) => {
     busy(btn, true, 'Making the PDF…');
-    try { const blob = await reports.pdf(id, aud); return new File([blob], `Dr-Pocket-${m.period.type}-report-${m.period.start}${aud === 'me' ? '-for-me' : '-for-doctor'}.pdf`, { type: 'application/pdf' }); }
+    try { const blob = await reports.pdf(id, 'doctor'); return new File([blob], `Dr-Pocket-${m.period.type}-report-${m.period.start}.pdf`, { type: 'application/pdf' }); }
     finally { busy(btn, false); }
   };
   $('#dl').onclick = async (ev) => {

@@ -11,12 +11,13 @@ import { LOGO_DATA_URI } from './_logo.js';
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
-export function pdfFor(c, audience) {
+export function pdfFor(c, audience = 'doctor') {
+  audience = 'doctor'; // one report since 18 Nov; the person's own section stays in the app
   const m = buildModel({ source: c.source, problems: c.problems, problemId: c.problem_id, period: periodFor(c.period.type, c.period.end), tz: c.tz, now: c.generated_at, earlier: c.earlier, corrections: c.review?.corrections || [] });
   const body = reportHTML(m, c.narrative, { audience, review: c.review || {}, logo: LOGO_DATA_URI, generatedAt: c.generated_at, pdf: true });
   const html = pageHTML(body, { fontCss: FONT_CSS, title: `Dr Pocket ${TYPES[m.period.type].toLowerCase()} report` });
-  const footer = `${audience === 'me' ? 'PERSONAL' : 'CLINICIAN'} ${TYPES[m.period.type].toUpperCase()} REPORT  ·  ${m.label}`;
-  const name = `Dr-Pocket-${TYPES[m.period.type]}-report-${m.period.start}${m.period.end !== m.period.start ? `-to-${m.period.end}` : ''}${audience === 'me' ? '-for-me' : '-for-doctor'}.pdf`;
+  const footer = `${TYPES[m.period.type].toUpperCase()} REPORT  ·  ${m.label}`;
+  const name = `Dr-Pocket-${TYPES[m.period.type]}-report-${m.period.start}${m.period.end !== m.period.start ? `-to-${m.period.end}` : ''}.pdf`;
   return { name, render: () => htmlToPdf(html, { footer }) };
 }
 

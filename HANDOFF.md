@@ -110,8 +110,11 @@ Show screenshots of visual changes before going live, and keep explanations plai
   - **Picker:** About (problem or all), Daily / Weekly / Monthly / Yearly, a date (day; week ending on a day =
     the 7 days up to it; calendar month; calendar year). A live box shows the period, start and end, and coverage
     ("Entries recorded on 5 of 7 days · 12 days still to come") worked out on the device before anything is sent.
-  - **One report, two versions** from the same data: "For my doctor" (concise, neutral) and "For me" (plain,
-    supportive). Toggle at the top of the report. One Claude call writes both.
+  - **One report** (changed 18 Nov at the owner's request; it used to have "For my doctor" / "For me" versions):
+    the report itself is concise and neutral, for the person and their doctor alike, and is what the PDF holds.
+    A short **For you** card under it (in the app only, never in the PDF) gives easier-after / harder-with,
+    questions to ask and what to track next. One Claude call writes both (`narrative.doctor`, `narrative.for_you`).
+    Older two-version reports open as one report; their "For me" text fills the For you card.
   - **Order:** identity and range → pain graphs → summary and stat cards → activities, symptoms and events →
     questions and missing information → patient additions and clarifications → chronological source table.
   - **Graphs** (SVG, 0–10 always): daily = 00–24 h with real times; weekly = seven day panels ("No entries",
@@ -198,7 +201,12 @@ Show screenshots of visual changes before going live, and keep explanations plai
   horizontal (navy text / white text / one-colour navy / one-colour white), stacked, app icons, PNGs, README.
 - The app header uses the horizontal SVGs (white-text version in dark mode); sign-in screen and favicon use the
   symbol; the 3D body page header uses it too.
-- **App icon (chosen 17 Nov):** silver background (#F7F9FA → #C9D3DA, top to bottom) with very faint navy flowing
+- **App icon (changed 18 Nov):** petrol background (#6FC9D3 bottom-left to #0C7E8E top-right) with faint white
+  flowing lines; the glossy cross 20% bigger than before, with a medium white outline and a soft white glow behind
+  it so the teal arm stands out. Built by editing the three `dr-pocket-app-icon*.svg` files (a white-stroked copy
+  and a blurred copy of the cross under the cross); PNGs rendered from them. The previous silver set is described
+  below.
+- **Previous app icon (17 Nov):** silver background (#F7F9FA → #C9D3DA, top to bottom) with very faint navy flowing
   lines and a glossy version of the cross (sheen, edge highlight, soft shadow). iPhone version has square corners
   (iOS rounds them); Android's maskable version keeps the cross in the safe zone. The Android start-up colour is
   `#EEF2F4`. The user tried and rejected: dark navy, light-to-teal, a dozen flat variants, petrol teal with lines.

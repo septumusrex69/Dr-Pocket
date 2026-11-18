@@ -55,11 +55,22 @@ const AUDIENCE = (who) => ({
     track_next: STRINGS(who === 'the clinician' ? 'Leave empty.' : 'Two to four things worth recording from now on.'),
   },
 });
-const SCHEMA = { type: 'object', additionalProperties: false, required: ['doctor', 'me'], properties: { doctor: AUDIENCE('the clinician'), me: AUDIENCE('the person') } };
+// The person's own short section, shown in the app only (never in the PDF).
+const FOR_YOU = {
+  type: 'object', additionalProperties: false, required: ['summary', 'easier_after', 'harder_with', 'questions', 'track_next'],
+  properties: {
+    summary: CLAIMS('One or two warm, honest sentences to the person ("you") about the period. Each cites its entries.'),
+    easier_after: ACTS('Up to three things after which lower scores or feeling better were recorded, in plain words to "you".'),
+    harder_with: ACTS('Up to three things discomfort was recorded with or after, in plain words to "you".'),
+    questions: STRINGS('Two or three questions the person could ask their doctor or physio.'),
+    track_next: STRINGS('Two to four things worth recording from now on.'),
+  },
+};
+const SCHEMA = { type: 'object', additionalProperties: false, required: ['doctor', 'for_you'], properties: { doctor: AUDIENCE('the clinician'), for_you: FOR_YOU } };
 
-const SYSTEM = `You write the explanations in a Dr Pocket health report, from the person's own journal. The same report has two versions:
-- "doctor": for their doctor or physiotherapist. Concise, neutral, clinical-but-plain language. Emphasise symptom chronology, functional impact, significant changes, treatments recorded and information to clarify.
-- "me": for the person. Plain, supportive language, talking to them as "you". Explain patterns, what was easier or harder, useful questions for the clinician and what to track next.
+const SYSTEM = `You write the explanations in a Dr Pocket health report, from the person's own journal. There is one report:
+- "doctor": the report itself, which the person reads and shows to their doctor or physiotherapist. Concise, neutral, clinical-but-plain language anyone can read. Emphasise symptom chronology, functional impact, significant changes, treatments recorded and information to clarify.
+- "for_you": a short extra section only the person sees in the app. Plain, supportive words to "you": what was easier or harder, questions to ask, and what to track next. Same facts, no new claims.
 
 You receive FACTS (calculated by the app from the entries: counts, averages, coverage, significant events) and the entries themselves, each with an id (E1, E2, …).
 
@@ -126,19 +137,21 @@ function journalText(m, { reason = '', review = null } = {}) {
 function clean(n, known) {
   const fix = (arr) => (arr || []).map((it) => ({ ...it, refs: [...new Set((it.refs || []).filter((k) => known.has(k)))] })).filter((it) => it.refs.length);
   const out = {};
-  for (const a of ['doctor', 'me']) {
+  for (const a of ['doctor']) {
     const x = n?.[a] || {};
     out[a] = {
       summary: fix(x.summary), attention: fix(x.attention), harder_with: fix(x.harder_with).slice(0, 4), easier_after: fix(x.easier_after).slice(0, 4),
       sequences: fix(x.sequences).slice(0, 6), function_effects: fix(x.function_effects), treatments: fix(x.treatments), changes: fix(x.changes),
-      questions: (x.questions || []).slice(0, 6), missing: (x.missing || []).slice(0, 6), track_next: a === 'me' ? (x.track_next || []).slice(0, 5) : [],
+      questions: (x.questions || []).slice(0, 6), missing: (x.missing || []).slice(0, 6), track_next: [],
     };
   }
+  const y = n?.for_you || {};
+  out.for_you = { summary: fix(y.summary).slice(0, 2), easier_after: fix(y.easier_after).slice(0, 3), harder_with: fix(y.harder_with).slice(0, 3), questions: (y.questions || []).slice(0, 4), track_next: (y.track_next || []).slice(0, 4) };
   return out;
 }
 
 async function write(m, extra, track) {
-  const content = [{ type: 'text', text: `<journal>\n${journalText(m, extra)}\n</journal>` }, { type: 'text', text: 'Write both versions of the report explanations.' }];
+  const content = [{ type: 'text', text: `<journal>\n${journalText(m, extra)}\n</journal>` }, { type: 'text', text: 'Write the report explanations and the short section for the person.' }];
   const started = Date.now();
   const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'medium', maxTokens: 16000, track });
   console.log(`progress: ${m.rows.length} entries -> ${stop} in ${Math.round((Date.now() - started) / 1000)}s`);

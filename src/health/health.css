@@ -382,6 +382,17 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .credit p{margin:0}
 
 /* ---------- reports (v2) ---------- */
+.for-you{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+.for-you p{margin:0}
+.fy-h{font-size:.74em;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+.fy-cols{display:grid;gap:10px}
+.fy-col{border-radius:var(--r-sm);padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.fy-col.good{background:var(--low-soft)}.fy-col.good .fy-h{color:var(--low)}
+.fy-col.bad{background:var(--mid-soft)}.fy-col.bad .fy-h{color:var(--mid)}
+.fy-col p{font-size:.92em}
+.for-you .ref{display:inline-block;font-size:.68em;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:5px;padding:0 4px;text-decoration:none;vertical-align:1px}
+@media (min-width:640px){.fy-cols{grid-template-columns:1fr 1fr}}
+.rv-top .eyebrow{flex:1}
 .period-box{display:flex;flex-direction:column;gap:2px;background:var(--accent-soft);border-radius:var(--r-sm);padding:10px 12px;font-size:.9em}
 .period-box b{font-size:1.08em}
 .period-box span{color:var(--muted)}

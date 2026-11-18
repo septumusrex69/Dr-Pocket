@@ -431,7 +431,7 @@ function miniMonth(m, mo) {
 
 /* ---------- the document ---------- */
 const AUD = {
-  doctor: { sub: 'Clinician summary', harder: 'Discomfort reported with', easier: 'Relief reported after', func: 'Effect on daily function', treat: 'Treatment and exercise recorded', q: 'For the consultation', miss: 'Information to clarify', seq: 'What happened, then what changed' },
+  doctor: { sub: 'Pain and activity report', harder: 'Discomfort reported with', easier: 'Relief reported after', func: 'Effect on daily function', treat: 'Treatment and exercise recorded', q: 'For the consultation', miss: 'Information to clarify', seq: 'What happened, then what changed' },
   me: { sub: 'Your pain and activity summary', harder: 'Harder with', easier: 'Easier after', func: 'Effect on your day', treat: 'What you did for it', q: 'Questions for your doctor or physio', miss: 'Not recorded yet', track: 'What to track next', seq: 'What happened, then what changed' },
 };
 export const audienceLabel = (a) => (a === 'me' ? 'For me' : 'For my doctor');
