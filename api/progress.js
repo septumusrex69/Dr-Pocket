@@ -7,7 +7,7 @@
 // at once ("For my doctor" and "For me"), and every statement must cite the entries it comes from.
 // Logs record sizes and outcomes only, never content.
 import { createClient } from '@supabase/supabase-js';
-import { askForJson, allowed, apiError } from './_shared.js';
+import { Anthropic, askForJson, allowed, apiError } from './_shared.js';
 import { SUPABASE_URL, SUPABASE_KEY } from '../src/health/config.js';
 import { TYPES, safeTz, periodFor, periodBounds, buildModel, notableTerms, activityPhrase, exerciseText, coverageLine, dayShort, zoned } from '../src/health/report.js';
 
@@ -15,46 +15,43 @@ const UUID = /^[0-9a-f-]{36}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const COLS = 'id, problem_id, kind, at, time_known, body, pain, exercise, symptoms, activity, activities, activity_detail, triggers, relief, impact, checkin';
 
-const CLAIMS = (description) => ({
-  type: 'array', description,
-  items: { type: 'object', additionalProperties: false, required: ['text', 'refs'], properties: {
+// Item shapes are defined once ($defs) and reused: the expanded schema was too large for Anthropic's grammar
+// compiler ("The compiled grammar is too large", 400) once the report and the For you section shared one call.
+const DEFS = {
+  claim: { type: 'object', additionalProperties: false, required: ['text', 'refs'], properties: {
     text: { type: 'string' },
-    refs: { type: 'array', items: { type: 'string' }, description: 'Entry ids (E1, E2, …) this statement comes from. At least one.' },
+    refs: { type: 'array', items: { type: 'string' }, description: 'Entry ids (E1, E2, …) this comes from. At least one.' },
   } },
-});
-const ACTS = (description) => ({
-  type: 'array', description,
-  items: { type: 'object', additionalProperties: false, required: ['activity', 'text', 'refs'], properties: {
+  act: { type: 'object', additionalProperties: false, required: ['activity', 'text', 'refs'], properties: {
     activity: { type: 'string', description: 'Short activity name, e.g. "Sitting / computer work".' },
     text: { type: 'string', description: 'One short sentence: what was recorded around it.' },
     refs: { type: 'array', items: { type: 'string' } },
   } },
-});
+  seq: { type: 'object', additionalProperties: false, required: ['label', 'text', 'refs'], properties: {
+    label: { type: 'string', description: 'e.g. "17 Nov · Computer work, then walking" or "18 Nov, 09:41 · Sitting, then tingling". Only include a time if it was recorded.' },
+    text: { type: 'string', description: 'e.g. "After 20 minutes of computer work, pain was 2/10." Use "after", "recorded with" or "associated with", never "caused".' },
+    refs: { type: 'array', items: { type: 'string' } },
+  } },
+};
+const CLAIMS = (description) => ({ type: 'array', description, items: { $ref: '#/$defs/claim' } });
+const ACTS = (description) => ({ type: 'array', description, items: { $ref: '#/$defs/act' } });
 const STRINGS = (description) => ({ type: 'array', items: { type: 'string' }, description });
-const AUDIENCE = (who) => ({
+const DOCTOR = {
   type: 'object', additionalProperties: false,
-  required: ['summary', 'attention', 'harder_with', 'easier_after', 'sequences', 'function_effects', 'treatments', 'changes', 'questions', 'missing', 'track_next'],
+  required: ['summary', 'attention', 'harder_with', 'easier_after', 'sequences', 'function_effects', 'treatments', 'changes', 'questions', 'missing'],
   properties: {
-    summary: CLAIMS(`Two to four sentences summarising the period for ${who}: main symptoms, how they changed, what they were recorded with. Each sentence cites its entries.`),
+    summary: CLAIMS('Two to four sentences summarising the period: main symptoms, how they changed, what they were recorded with. Each sentence cites its entries.'),
     attention: CLAIMS('Anything recorded that should be raised with a clinician promptly (new numbness, tingling, weakness, loss of bladder or bowel control, fever after surgery, chest pain, a hot swollen calf, severe night pain). Empty if none.'),
     harder_with: ACTS('Up to four activities or situations that discomfort or a higher score was recorded with or after.'),
     easier_after: ACTS('Up to four activities or situations after which lower scores or feeling better were recorded.'),
-    sequences: {
-      type: 'array', description: 'Two to six "what happened, then what changed" items, oldest first. The activity or preceding event comes first, then the symptom or pain change.',
-      items: { type: 'object', additionalProperties: false, required: ['label', 'text', 'refs'], properties: {
-        label: { type: 'string', description: 'e.g. "17 Nov · Computer work, then walking" or "18 Nov, 09:41 · Sitting, then tingling". Only include a time if it was recorded.' },
-        text: { type: 'string', description: 'e.g. "After 20 minutes of computer work, pain was 2/10." Use "after", "recorded with" or "associated with", never "caused".' },
-        refs: { type: 'array', items: { type: 'string' } },
-      } },
-    },
+    sequences: { type: 'array', description: 'Two to six "what happened, then what changed" items, oldest first. The activity or preceding event comes first, then the symptom or pain change.', items: { $ref: '#/$defs/seq' } },
     function_effects: CLAIMS('Effects on sitting, computer work, driving, sleep, exercise and daily activities, only as recorded.'),
     treatments: CLAIMS('Treatments, medication and exercise actually recorded. Never suggest any.'),
     changes: CLAIMS('Changes over the period, without overstating improvement. Say when there is too little data to call a trend.'),
-    questions: STRINGS(`Two to five useful questions ${who === 'the clinician' ? 'to discuss at the consultation' : 'the person could ask their doctor or physio'}.`),
+    questions: STRINGS('Two to five useful questions to discuss at the consultation.'),
     missing: STRINGS('Important information that was not recorded and would help (do not repeat simple counts of missing scores or days; those are added automatically).'),
-    track_next: STRINGS(who === 'the clinician' ? 'Leave empty.' : 'Two to four things worth recording from now on.'),
   },
-});
+};
 // The person's own short section, shown in the app only (never in the PDF).
 const FOR_YOU = {
   type: 'object', additionalProperties: false, required: ['summary', 'easier_after', 'harder_with', 'questions', 'track_next'],
@@ -66,7 +63,10 @@ const FOR_YOU = {
     track_next: STRINGS('Two to four things worth recording from now on.'),
   },
 };
-export const SCHEMA = { type: 'object', additionalProperties: false, required: ['doctor', 'for_you'], properties: { doctor: AUDIENCE('the clinician'), for_you: FOR_YOU } };
+export const SCHEMA = { type: 'object', additionalProperties: false, required: ['doctor', 'for_you'], properties: { doctor: DOCTOR, for_you: FOR_YOU }, $defs: DEFS };
+// Fallback if the combined grammar is ever refused again: the same two parts in two calls.
+export const SCHEMA_DOCTOR = { type: 'object', additionalProperties: false, required: ['doctor'], properties: { doctor: DOCTOR }, $defs: DEFS };
+export const SCHEMA_FOR_YOU = { type: 'object', additionalProperties: false, required: ['for_you'], properties: { for_you: FOR_YOU }, $defs: DEFS };
 
 export const SYSTEM = `You write the explanations in a Dr Pocket health report, from the person's own journal. There is one report:
 - "doctor": the report itself, which the person reads and shows to their doctor or physiotherapist. Concise, neutral, clinical-but-plain language anyone can read. Emphasise symptom chronology, functional impact, significant changes, treatments recorded and information to clarify.
@@ -153,7 +153,18 @@ function clean(n, known) {
 async function write(m, extra, track) {
   const content = [{ type: 'text', text: `<journal>\n${journalText(m, extra)}\n</journal>` }, { type: 'text', text: 'Write the report explanations and the short section for the person.' }];
   const started = Date.now();
-  const { stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'medium', maxTokens: 16000, track });
+  let stop; let data;
+  try {
+    ({ stop, data } = await askForJson({ system: SYSTEM, content, schema: SCHEMA, effort: 'medium', maxTokens: 16000, track }));
+  } catch (err) {
+    // If the combined format is refused as too large, write the two parts in two calls instead.
+    if (!(err instanceof Anthropic.BadRequestError) || !/grammar|schema|too complex/i.test(String(err?.error?.error?.message || err?.message))) throw err;
+    console.log('progress: combined schema refused, using two calls');
+    const a = await askForJson({ system: SYSTEM, content, schema: SCHEMA_DOCTOR, effort: 'medium', maxTokens: 16000, track });
+    const b = a.stop === 'refusal' || a.stop === 'max_tokens' ? { stop: a.stop } : await askForJson({ system: SYSTEM, content, schema: SCHEMA_FOR_YOU, effort: 'low', maxTokens: 6000, track });
+    stop = a.stop === 'end_turn' ? b.stop : a.stop;
+    data = { ...(a.data || {}), ...(b.data || {}) };
+  }
   console.log(`progress: ${m.rows.length} entries -> ${stop} in ${Math.round((Date.now() - started) / 1000)}s`);
   if (stop === 'refusal') { const e = new Error('refusal'); e.http = [422, 'A report could not be written for this period. Try a different period.']; throw e; }
   if (stop === 'max_tokens') { const e = new Error('long'); e.http = [502, 'The report was cut short. Try a shorter period.']; throw e; }

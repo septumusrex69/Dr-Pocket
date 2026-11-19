@@ -1,7 +1,7 @@
 // TEMPORARY diagnostic (19 Nov): sends the report schema with a one-line fake journal and returns Anthropic's
 // exact error, to find why report creation gets a 400. Preview deployments only; remove after the fix.
 import { client, MODEL } from './_shared.js';
-import { SCHEMA, SYSTEM } from './progress.js';
+import { SCHEMA, SCHEMA_DOCTOR, SCHEMA_FOR_YOU, SYSTEM } from './progress.js';
 
 async function attempt(label, schema, { fallbacks = true } = {}) {
   try {
@@ -18,11 +18,11 @@ async function attempt(label, schema, { fallbacks = true } = {}) {
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (process.env.VERCEL_ENV === 'production') return res.status(404).json({ error: 'Not here.' });
-  const doctorOnly = { type: 'object', additionalProperties: false, required: ['doctor'], properties: { doctor: SCHEMA.properties.doctor } };
-  const forYouOnly = { type: 'object', additionalProperties: false, required: ['for_you'], properties: { for_you: SCHEMA.properties.for_you } };
+  const doctorOnly = SCHEMA_DOCTOR;
+  const forYouOnly = SCHEMA_FOR_YOU;
   const out = [];
   out.push(await attempt('full schema', SCHEMA));
-  if (!out[0].ok) {
+  {
     out.push(await attempt('full schema, no fallbacks', SCHEMA, { fallbacks: false }));
     out.push(await attempt('doctor only', doctorOnly));
     out.push(await attempt('for_you only', forYouOnly));
