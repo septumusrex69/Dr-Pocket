@@ -106,7 +106,8 @@ const NOTABLE = [
   { key: 'weak', label: 'weakness', re: /\bweak(ness)?\b/i },
   { key: 'swelling', label: 'swelling', re: /swell|swollen/i },
   { key: 'radiating', label: 'pain spreading or shooting', re: /radiat|shooting|down (my|the) arm|into (my|the) (arm|hand|neck)/i },
-  { key: 'locking', label: 'locking or giving way', re: /\block(ing|ed)\b|gave way|giving way|instabil/i },
+  { key: 'locking', label: 'locking or giving way', re: /\block(ing|ed)\b|gave way|giving way/i },
+  { key: 'instability', label: 'instability', re: /instabil|unstable/i },
 ];
 const SLEEP_RE = /woke (up )?(with|from|in|because|at night)|wak(e|ing) up (with|in|from) pain|couldn'?t sleep|could not sleep|kept me (up|awake)|night pain|pain (at|during the) night|disturbed sleep|bad night|poor sleep|stiffness (at|in the) night|night stiffness/i;
 const textOf = (e) => [e.body, ...(e.symptoms || []), e.triggers, e.relief, e.impact].filter(Boolean).join(' \n ');
