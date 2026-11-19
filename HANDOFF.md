@@ -126,6 +126,10 @@ Show screenshots of visual changes before going live, and keep explanations plai
     below: first-ever notable symptom (tingling, numbness, weakness, swelling, spreading pain, locking), highest
     recorded pain (with what came before it, or "timing unclear" for untimed same-day activities), sleep
     disturbance (grouped when on many days), biggest rise of 3+ points within 24 h.
+  - **Report format (19 Nov fix):** the JSON schema Claude fills in defines its repeated item shapes once
+    (`$defs` claim/act/seq). Written out in full, the report plus For you schema was refused by Anthropic with
+    "The compiled grammar is too large" (400, shown to the user as a generic error). If that ever happens again,
+    `write()` falls back to two calls (report, then For you).
   - **Grounding:** every number is calculated in `src/health/report.js`; Claude only writes explanations, each with
     E-number refs; the server drops any statement whose refs do not exist. Tapping an E-number scrolls to the row.
   - **Patient review:** after reading: "Does this report accurately reflect your experience? Is there anything
