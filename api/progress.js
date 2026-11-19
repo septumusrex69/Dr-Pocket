@@ -66,9 +66,9 @@ const FOR_YOU = {
     track_next: STRINGS('Two to four things worth recording from now on.'),
   },
 };
-const SCHEMA = { type: 'object', additionalProperties: false, required: ['doctor', 'for_you'], properties: { doctor: AUDIENCE('the clinician'), for_you: FOR_YOU } };
+export const SCHEMA = { type: 'object', additionalProperties: false, required: ['doctor', 'for_you'], properties: { doctor: AUDIENCE('the clinician'), for_you: FOR_YOU } };
 
-const SYSTEM = `You write the explanations in a Dr Pocket health report, from the person's own journal. There is one report:
+export const SYSTEM = `You write the explanations in a Dr Pocket health report, from the person's own journal. There is one report:
 - "doctor": the report itself, which the person reads and shows to their doctor or physiotherapist. Concise, neutral, clinical-but-plain language anyone can read. Emphasise symptom chronology, functional impact, significant changes, treatments recorded and information to clarify.
 - "for_you": a short extra section only the person sees in the app. Plain, supportive words to "you": what was easier or harder, questions to ask, and what to track next. Same facts, no new claims.
 
