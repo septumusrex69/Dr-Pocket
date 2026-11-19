@@ -150,7 +150,7 @@ function clean(n, known) {
   return out;
 }
 
-async function write(m, extra, track) {
+export async function write(m, extra, track) {
   const content = [{ type: 'text', text: `<journal>\n${journalText(m, extra)}\n</journal>` }, { type: 'text', text: 'Write the report explanations and the short section for the person.' }];
   const started = Date.now();
   let stop; let data;
