@@ -348,6 +348,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .rt-done li.skip .i{color:var(--muted)}
 .rt-done small{color:var(--muted)}
 
+/* ---------- offline ---------- */
+.net{display:flex;gap:10px;align-items:flex-start;margin:0 auto;padding:10px max(16px,env(safe-area-inset-left));font-size:.86em;line-height:1.4}
+.net .i{flex:none;width:18px;height:18px;margin-top:1px}
+.net.off{background:var(--mid-soft);color:var(--ink)}
+.net.up{background:var(--accent-soft);color:var(--ink)}
+.tag.pend{background:var(--mid-soft);color:var(--mid);font-weight:600}
+.tag.pend .i{width:13px;height:13px;margin-right:3px}
+
 /* ---------- Claude usage and credit ---------- */
 .set-link{display:flex;align-items:center;gap:12px}
 .set-link>span{flex:1;display:flex;flex-direction:column}

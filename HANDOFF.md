@@ -85,6 +85,22 @@ Show screenshots of visual changes before going live, and keep explanations plai
 - **Timeline:** one heading per day ("Today", "Yesterday", "Saturday, 14 November"); that day's entries are rows in
   one card showing only the time ("No time" if only the date is known). Today open, earlier days folded. Search,
   filter (notes / exercise / with pain), day picker.
+- **Works without signal (20 Nov, for a 3-day trip to the Kruger):**
+  - `public/sw.js` keeps the app's own files on the phone (network first with a 5 s limit, so it is never stuck on
+    an old version) and the last copy of every database read (8 s limit). Open the app once with signal after a
+    release so the phone has it.
+  - `src/health/db.js`: notes, exercise, routines logged and check-ins saved offline go into an IndexedDB outbox
+    (`drpocket` db, store `outbox`; files as blobs on a note saved offline). New entries get their id on the phone,
+    and upload uses upsert on id, so a retry can't make a duplicate. Edits and deletes are queued too. `sync()`
+    runs on the `online` event, when the app comes back to the screen, every 45 s while something waits, and from
+    Settings → No signal? → Upload now.
+  - While online, `warmOffline()` keeps a full copy of the journal, problems and routines (store `snap`), so any
+    screen works offline. Lists merge in what is waiting ("Not uploaded yet" tag). A banner says when there is no
+    signal and how many changes wait.
+  - Sign-in: without signal an expired session is kept (`auth.session()` falls back to the saved one; a refresh
+    failure is not treated as a sign-out); it refreshes when signal returns. Supabase retries are off
+    (`db: { retry: false, timeout: 15000 }`) because they made each offline screen wait about 7 s.
+  - Not offline: creating or editing problems and routines, adding files to existing entries, reports, AI.
 - **One save, one note (20 Nov):** the old rule that joined a note saved within 15 minutes onto the previous
   note is gone (it merged two observations and overwrote the first pain score). Only an identical repeat within
   2 minutes (double tap) is ignored. The 20 Nov 08:52 / 09:03 notes it had merged were split back by SQL.

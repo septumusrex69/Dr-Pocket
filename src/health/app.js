@@ -4,7 +4,7 @@
 // worked out on the device from what was recorded; the doctor summary is written by Claude only when
 // the person asks for it and agrees to send the entries.
 import './health.css';
-import { sb, auth, problems, entries, files, reports, routines, usage } from './db.js';
+import { sb, auth, problems, entries, files, reports, routines, usage, outbox, sync, warmOffline } from './db.js';
 import { dictation } from './dictate.js';
 import { icon, mark, lockup } from './icons.js';
 import { MODES, currentMode, applyMode } from './appearance.js';
@@ -74,13 +74,42 @@ function shell({ back = null, tab = null, body, foot = '' }) {
       <a class="top-c" href="#/" aria-label="Dr Pocket home">${lockup(32)}</a>
       <div class="top-r">${session ? `<a class="icon-btn" href="#/settings" aria-label="Settings">${icon('settings')}</a>` : ''}</div>
     </header>
+    ${session ? '<div class="net" id="net" role="status" hidden></div>' : ''}
     <main class="page">${body}</main>
     ${foot}
     ${session ? `<nav class="nav" aria-label="Main">${NAV.map(([k, href, label, ic]) => `<a href="${href}" class="${k === 'add' ? 'nav-add' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${icon(ic)}<span>${label}</span></a>`).join('')}</nav>` : ''}`;
   document.body.classList.toggle('signed-in', !!session);
   document.body.classList.toggle('has-cta', !!foot);
   window.scrollTo(0, 0);
+  paintNet();
 }
+
+/* ---------- offline: banner, and uploading what was saved without signal ---------- */
+let waiting = 0;
+function paintNet() {
+  const el = document.getElementById('net'); if (!el) return;
+  const off = navigator.onLine === false;
+  el.hidden = !off && !waiting;
+  el.className = `net ${off ? 'off' : 'up'}`;
+  el.innerHTML = off
+    ? `${icon('info')}<span><b>No signal.</b> Keep going: everything you save stays on this phone${waiting ? ` (${n(waiting, 'change')} waiting)` : ''} and uploads when you have signal.</span>`
+    : `${icon('clock')}<span>Uploading ${n(waiting, 'change')} saved without signal…</span>`;
+}
+const FORM_ROUTES = /^#\/(add|exercise|checkin|routine|problem|password)/;
+async function trySync() {
+  const done = await sync().catch(() => 0);
+  warmOffline().catch(() => {});
+  if (done) {
+    toast(`${n(done, 'change')} saved offline ${done === 1 ? 'is' : 'are'} now uploaded`);
+    if (!FORM_ROUTES.test(location.hash)) route();
+  }
+}
+outbox.onChange((k) => { waiting = k; paintNet(); });
+addEventListener('online', () => { paintNet(); trySync(); });
+addEventListener('offline', paintNet);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') trySync(); });
+setInterval(() => { if (waiting && navigator.onLine !== false) trySync(); }, 45000);
+const savedToast = (e, words = 'Saved') => toast(e?.pending ? `${words} on this phone · uploads when you have signal` : words);
 
 /* ---------- shared pieces ---------- */
 function chipsPicker(host, { options, selected = [], multi = true, label, other = true }) {
@@ -207,7 +236,7 @@ function tagsOf(e) {
   else actsOf(e).slice(0, 2).forEach((a, i) => tags.push(`${i ? '' : icon('walk')}${esc(a)}`));
   (e.symptoms || []).slice(0, 3).forEach((s) => tags.push(esc(s)));
   if (e.files?.length) tags.push(`${icon('image')}${e.files.length}`);
-  return tags.map((t) => `<span class="tag">${t}</span>`).join('');
+  return (e.pending ? `<span class="tag pend">${icon('clock')}Not uploaded yet</span>` : '') + tags.map((t) => `<span class="tag">${t}</span>`).join('');
 }
 function entryRow(e, { showProblem = null, showDay = false } = {}) {
   const time = e.time_known === false ? 'No time' : fmtTime(e.at);
@@ -811,7 +840,7 @@ async function renderAdd() {
             e = last; toast('Already saved');
           }
         }
-        if (!e) { e = await entries.create({ ...row, problem_id: problemId, kind: 'note', at: w.at, time_known: w.time_known }); toast('Saved'); }
+        if (!e) { e = await entries.create({ ...row, problem_id: problemId, kind: 'note', at: w.at, time_known: w.time_known }); savedToast(e); }
         for (const file of fl) await files.upload({ uid: session.user.id, problemId, entryId: e.id, file, at: w.at });
       }
       go(`#/p/${problemId || 'none'}`);
@@ -878,9 +907,8 @@ async function renderCheckin() {
     const row = { kind: 'day', problem_id: null, body: f.body.value.trim(), pain: pain(), checkin: { rating, sleep_h: sleep, sleep_q: pick.sleep_q, energy: pick.energy, mood: pick.mood } };
     const btn = $('#save'); busy(btn, true);
     try {
-      if (existing) await entries.update(existing.id, row);
-      else await entries.create({ ...row, at: new Date().toISOString(), time_known: true });
-      toast('Check-in saved'); go('#/');
+      const saved = existing ? await entries.update(existing.id, row) : await entries.create({ ...row, at: new Date().toISOString(), time_known: true });
+      savedToast(saved, 'Check-in saved'); go('#/');
     } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
   };
 }
@@ -1001,7 +1029,7 @@ async function renderExercise() {
     } else exercise = { name: f.name.value.trim(), sets: num(f.sets.value), reps: num(f.reps.value), weight: num(f.weight.value), minutes: num(f.minutes.value), km: num(f.km.value) };
     const row = { problem_id: f.problem.value === 'none' ? null : f.problem.value, kind: 'exercise', exercise, body: f.body.value.trim(), pain: pain(), at: w.at, time_known: w.time_known, activity: 'Exercise', activities: ['Exercise'] };
     const btn = $('#save'); busy(btn, true);
-    try { if (editing) await entries.update(editing, row); else await entries.create(row); toast(mode === 'routine' ? 'Routine logged' : 'Exercise saved'); go(`#/p/${row.problem_id || 'none'}?t=exercise`); } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
+    try { const saved = editing ? await entries.update(editing, row) : await entries.create(row); savedToast(saved, mode === 'routine' ? 'Routine logged' : 'Exercise saved'); go(`#/p/${row.problem_id || 'none'}?t=exercise`); } catch (err) { busy(btn, false); $('.err').textContent = errMsg(err); }
   };
 }
 
@@ -1491,6 +1519,9 @@ function renderSettings() {
         <p class="small muted" id="push-note"></p>
         <button class="btn" id="push" hidden></button></section>
       <a class="card set-link" href="#/usage">${icon('chart')}<span><b>Claude usage and credit</b><small>What each AI action cost, and how much credit is left</small></span>${icon('chevron')}</a>
+      <section class="card stack"><div class="card-h"><h3>No signal?</h3><span class="hint" id="off-count"></span></div>
+        <p class="small">Dr Pocket keeps working without signal: notes, pain scores, exercise, routines and check-ins are saved on this phone and upload by themselves when you have signal again. Open the app once with signal before you go, so it is ready. Reports and the AI need signal.</p>
+        <button class="btn" id="sync-now" hidden>${icon('clock')} Upload now</button></section>
       <section class="card stack"><div class="card-h"><h3>Account</h3></div>
         <p class="small acct">${icon('user')} ${esc(session.user.email)}</p>
         <div class="row-btns"><a class="btn" href="#/password">Change password</a><button class="btn" id="out">Sign out</button></div></section>
@@ -1519,7 +1550,14 @@ function renderSettings() {
   };
   paintPush();
   $$('.mode').forEach((b) => { b.onclick = () => { applyMode(b.dataset.m); $$('.mode').forEach((x) => x.setAttribute('aria-checked', String(x === b))); }; });
-  $('#out').onclick = async () => { await auth.signOut(); go('#/login'); };
+  outbox.count().then((k) => { const c = $('#off-count'); if (c) c.textContent = k ? `${n(k, 'change')} waiting to upload` : 'all uploaded'; const b = $('#sync-now'); if (b) b.hidden = !k; });
+  $('#sync-now').onclick = async (ev) => { busy(ev.currentTarget, true, 'Uploading…'); await trySync(); renderSettings(); };
+  $('#out').onclick = async () => {
+    const k = await outbox.count();
+    if (k && !confirm(`${n(k, 'change')} saved without signal ${k === 1 ? 'has' : 'have'} not uploaded yet and would be lost. Sign out anyway?`)) return;
+    navigator.serviceWorker?.controller?.postMessage({ type: 'clear-data' });
+    await auth.signOut(); go('#/login');
+  };
   $('#del').onclick = async () => {
     if (prompt('This deletes your account and every problem, entry, file and summary. Type DELETE to confirm.') !== 'DELETE') return;
     try { await auth.deleteAccount(session.user.id); toast('Account deleted'); go('#/login'); } catch (e) { toast(errMsg(e)); }
@@ -1558,8 +1596,10 @@ applyMode(currentMode());
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 sb.auth.onAuthStateChange((event, s) => {
   const was = !!session;
+  // Without signal the sign-in can't refresh; that is not a sign-out, so keep the account saved on the phone.
+  if (!s && event !== 'SIGNED_OUT') return;
   session = s;
   if (event === 'PASSWORD_RECOVERY') return go('#/password');
   if (was !== !!s && event !== 'INITIAL_SESSION') route();
 });
-auth.session().then((s) => { session = s; addEventListener('hashchange', route); route(); });
+auth.session().then((s) => { session = s; addEventListener('hashchange', route); route(); outbox.count().then((k) => { waiting = k; paintNet(); }); if (s) trySync(); });
