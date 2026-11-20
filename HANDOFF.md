@@ -85,12 +85,14 @@ Show screenshots of visual changes before going live, and keep explanations plai
 - **Timeline:** one heading per day ("Today", "Yesterday", "Saturday, 14 November"); that day's entries are rows in
   one card showing only the time ("No time" if only the date is known). Today open, earlier days folded. Search,
   filter (notes / exercise / with pain), day picker.
+- **One save, one note (20 Nov):** the old rule that joined a note saved within 15 minutes onto the previous
+  note is gone (it merged two observations and overwrote the first pain score). Only an identical repeat within
+  2 minutes (double tap) is ignored. The 20 Nov 08:52 / 09:03 notes it had merged were split back by SQL.
 - **Add note:** own words first, with dictation. When: Just now / Date and time / Date only (`time_known=false`).
   Optional pain 0–10, symptom chips, **activities (several at once)** from a list (Computer work, Sitting,
   Standing, Walking, Driving, Phone use, Housework, Lifting / carrying, Exercise, Sport, Gardening, Sleeping,
   Lying down, Resting, + Other) with a free-text **"How long, how far?"**, then triggers / relief / impact, files.
-  A note saved "just now" within 15 minutes of the last note on the same problem is merged into it (asked for after
-  a note and its pain score became two entries).
+  Each save is its own note (the 15-minute merge was removed on 20 Nov; see above).
 - **Entry page:** original words, all fields, written-down time, edit history ("earlier versions").
 - **Log exercise** (`#/exercise`): two ways. **A routine** (default): pick one of your routines, untick anything
   skipped, optional total minutes. **One exercise**: name (remembers previous names), sets, reps, kg, min, km.

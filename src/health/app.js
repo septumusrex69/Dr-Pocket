@@ -801,18 +801,14 @@ async function renderAdd() {
       let e;
       if (editing) e = await entries.update(editing.id, { ...row, problem_id: problemId, at: w.at, time_known: w.time_known });
       else {
-        // Saved within 15 minutes of your last note on the same problem: it belongs to that note.
-        if (w.now) {
+        // Every save is its own note (changed 20 Nov: joining notes saved within 15 minutes merged two separate
+        // observations and overwrote the first pain score). Only an exact repeat within 2 minutes, such as a
+        // double tap on Save, is treated as the same note instead of being saved twice.
+        if (w.now && text) {
           const [last] = await entries.list({ problemId: problemId || 'none', kind: 'note', limit: 1 });
-          if (last && last.time_known !== false && Date.now() - D(last.at) < 15 * 60e3) {
-            e = await entries.update(last.id, {
-              body: [last.body, text].filter(Boolean).join('\n'), pain: pv ?? last.pain,
-              symptoms: [...new Set([...(last.symptoms || []), ...row.symptoms])],
-              activities: [...new Set([...actsOf(last), ...row.activities])], activity: [...new Set([...actsOf(last), ...row.activities])].join(', '),
-              activity_detail: [last.activity_detail, row.activity_detail].filter(Boolean).join('; '),
-              triggers: row.triggers || last.triggers, relief: row.relief || last.relief, impact: row.impact || last.impact,
-            });
-            toast(`Added to your ${fmtTime(last.at)} note`);
+          const same = (x) => String(x || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (last && Date.now() - D(last.created_at || last.at) < 2 * 60e3 && same(last.body) === same(text) && (last.pain ?? null) === (pv ?? null)) {
+            e = last; toast('Already saved');
           }
         }
         if (!e) { e = await entries.create({ ...row, problem_id: problemId, kind: 'note', at: w.at, time_known: w.time_known }); toast('Saved'); }
