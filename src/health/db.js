@@ -3,7 +3,34 @@
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_KEY, BUCKET } from './config.js';
 
+// The phone often says it is online when there is no usable signal (one bar, camp Wi-Fi without internet).
+// Requests then hang instead of failing, so every database and sign-in call gives up after a few seconds,
+// and after a failure the app works from the phone for a minute before trying the network again.
+let lastFail = 0; let lastOk = 0;
+// "Open without signal" on the slow-start screen: work from the phone for 10 minutes, then try again.
+const forcedOffline = () => { try { return Date.now() - Number(localStorage.getItem('drpocket.forceOffline') || 0) < 10 * 60e3; } catch { return false; } };
+const netListeners = new Set();
+export const net = {
+  down: () => (typeof navigator !== 'undefined' && navigator.onLine === false) || Date.now() - lastFail < 60e3 || forcedOffline(),
+  onChange: (fn) => { netListeners.add(fn); return () => netListeners.delete(fn); },
+};
+const setNet = (failed, started = Date.now()) => {
+  if (failed && started < lastOk) return; // an old request from the dead period finishing late
+  if (!failed) { lastOk = Date.now(); try { localStorage.removeItem('drpocket.forceOffline'); } catch { /* fine */ } }
+  const was = net.down(); lastFail = failed ? Date.now() : 0; if (was !== net.down()) netListeners.forEach((fn) => fn(net.down())); };
+function timedFetch(input, init = {}) {
+  const url = String(input?.url || input);
+  const ms = /\/storage\/v1\/object\//.test(url) ? 90e3 : /\/auth\/v1\//.test(url) ? 6e3 : 9e3;
+  const ctrl = new AbortController(); const started = Date.now();
+  const timer = setTimeout(() => ctrl.abort(new DOMException('timed out', 'TimeoutError')), ms);
+  if (init.signal) init.signal.addEventListener('abort', () => ctrl.abort(init.signal.reason), { once: true });
+  return fetch(input, { ...init, signal: ctrl.signal })
+    .then((res) => { setNet(res.headers?.get?.('x-dp-offline') === '1', started); return res; }, (err) => { setNet(true, started); throw new TypeError(`Failed to fetch (${err?.name || 'network'})`); })
+    .finally(() => clearTimeout(timer));
+}
+
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  global: { fetch: timedFetch },
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'drpocket.auth' },
   // No automatic retries: without signal they kept each screen waiting about 7 seconds before showing the
   // copy on the phone. A request on a weak signal gives up after 15 s.
@@ -16,7 +43,7 @@ const must = ({ data, error }) => { if (error) throw error; return data; };
 // Notes, pain scores, exercise, routines logged and check-ins saved offline go into an outbox in
 // IndexedDB (files too, as blobs). Each new entry gets its id on the phone, so uploading it twice can't
 // make a duplicate. sync() sends the outbox in order as soon as there is signal.
-export const isNetErr = (e) => (typeof navigator !== 'undefined' && navigator.onLine === false) || /failed to fetch|load failed|networkerror|network request failed|fetch failed|timed? ?out/i.test(String(e?.message || e || ''));
+export const isNetErr = (e) => (typeof navigator !== 'undefined' && navigator.onLine === false) || /failed to fetch|load failed|networkerror|network request failed|fetch failed|timed? ?out|abort/i.test(`${e?.name || ''} ${e?.message || e || ''}`);
 const idb = (() => {
   let p;
   const open = () => (p ||= new Promise((res, rej) => {
@@ -44,7 +71,7 @@ export const outbox = {
 };
 // While there is signal, keep a full copy of the journal on the phone for the next time there is none.
 export async function warmOffline() {
-  if (navigator.onLine === false) return;
+  if (net.down()) return;
   await Promise.allSettled([entries.list({ limit: 3000 }), problems.list(), routines.list()]);
 }
 let syncing = null;
@@ -55,6 +82,9 @@ export function sync() {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return 0;
     const items = (await outbox.all()).sort((a, b) => a.key - b.key);
     if (!items.length) return 0;
+    // The sign-in library pauses refreshing for 60 s after a failed attempt (all of them fail without
+    // signal). We are uploading because the network looks back, so let it try again straight away.
+    try { if (sb.auth.lastRefreshFailure) sb.auth.lastRefreshFailure = null; } catch { /* internal detail; harmless if renamed */ }
     const { data: { session } } = await sb.auth.getSession();
     if (!session) return 0;
     for (const x of items) {
@@ -80,12 +110,14 @@ export function sync() {
 /* ---------- account ---------- */
 export const auth = {
   async session() {
-    const { data, error } = await sb.auth.getSession().catch((e) => ({ data: {}, error: e }));
+    // Never wait long for the sign-in check: without usable signal, carry on with the account saved on the phone.
+    const late = new Promise((res) => setTimeout(res, 4000, { data: {}, error: new Error('timed out') }));
+    const { data, error } = await Promise.race([sb.auth.getSession(), late]).catch((e) => ({ data: {}, error: e }));
     if (data?.session) return data.session;
     // No signal and the sign-in needs refreshing: keep using the account saved on this phone.
     try {
       const saved = JSON.parse(localStorage.getItem('drpocket.auth') || 'null');
-      if (saved?.user && (navigator.onLine === false || isNetErr(error))) return { ...saved, offline: true };
+      if (saved?.user && (navigator.onLine === false || isNetErr(error) || net.down())) return { ...saved, offline: true };
     } catch { /* nothing saved */ }
     return null;
   },
@@ -115,7 +147,7 @@ export const auth = {
 export const problems = {
   async list() {
     let rows;
-    try { rows = must(await sb.from('problems').select('*, entries(count)').order('updated_at', { ascending: false })); idb.snapPut('problems', rows).catch(() => {}); } catch (err) {
+    try { if (net.down()) throw new TypeError('Failed to fetch (offline)'); rows = must(await sb.from('problems').select('*, entries(count)').order('updated_at', { ascending: false })); idb.snapPut('problems', rows).catch(() => {}); } catch (err) {
       if (!isNetErr(err)) throw err;
       rows = (await idb.snapGet('problems').catch(() => null))?.v; if (!rows) throw err;
     }
@@ -142,6 +174,7 @@ export const entries = {
   async list({ problemId = null, kind = null, from = null, to = null, limit = 500 } = {}) {
     let rows = [];
     try {
+      if (net.down()) throw new TypeError('Failed to fetch (offline)');
       let q = sb.from('entries').select('*, files(*)').order('at', { ascending: false }).limit(limit);
       if (problemId === 'none') q = q.is('problem_id', null);
       else if (problemId) q = q.eq('problem_id', problemId);
@@ -181,7 +214,7 @@ export const entries = {
   },
   async create(e) {
     const row = { id: e.id || crypto.randomUUID(), ...e };
-    if (navigator.onLine !== false) {
+    if (!net.down()) {
       try { const out = must(await sb.from('entries').insert(row).select().single()); sync(); return out; } catch (err) { if (!isNetErr(err)) throw err; }
     }
     await idb.add({ op: 'create', id: row.id, row, files: [], queued_at: new Date().toISOString() });
@@ -191,7 +224,7 @@ export const entries = {
   async update(id, e) {
     const p = await outbox.findCreate(id);
     if (p) { p.row = { ...p.row, ...e }; await idb.put(p); notify(); return { ...p.row, pending: true }; }
-    if (navigator.onLine !== false) {
+    if (!net.down()) {
       try { return must(await sb.from('entries').update(e).eq('id', id).select().single()); } catch (err) { if (!isNetErr(err)) throw err; }
     }
     await idb.add({ op: 'update', id, row: e, queued_at: new Date().toISOString() });
@@ -220,7 +253,7 @@ export const entries = {
 /* ---------- exercise routines (a named list of exercises or stretches, logged in one go) ---------- */
 export const routines = {
   async list() {
-    try { const rows = must(await sb.from('routines').select('*').eq('archived', false).order('name')); idb.snapPut('routines', rows).catch(() => {}); return rows; } catch (err) {
+    try { if (net.down()) throw new TypeError('Failed to fetch (offline)'); const rows = must(await sb.from('routines').select('*').eq('archived', false).order('name')); idb.snapPut('routines', rows).catch(() => {}); return rows; } catch (err) {
       if (!isNetErr(err)) throw err;
       const rows = (await idb.snapGet('routines').catch(() => null))?.v; if (!rows) throw err; return rows;
     }

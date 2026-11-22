@@ -4,7 +4,7 @@
 // worked out on the device from what was recorded; the doctor summary is written by Claude only when
 // the person asks for it and agrees to send the entries.
 import './health.css';
-import { sb, auth, problems, entries, files, reports, routines, usage, outbox, sync, warmOffline } from './db.js';
+import { sb, auth, problems, entries, files, reports, routines, usage, outbox, sync, warmOffline, net } from './db.js';
 import { dictation } from './dictate.js';
 import { icon, mark, lockup } from './icons.js';
 import { MODES, currentMode, applyMode } from './appearance.js';
@@ -81,6 +81,7 @@ function shell({ back = null, tab = null, body, foot = '' }) {
   document.body.classList.toggle('signed-in', !!session);
   document.body.classList.toggle('has-cta', !!foot);
   window.scrollTo(0, 0);
+  window.__drpStarted = true;
   paintNet();
 }
 
@@ -88,7 +89,7 @@ function shell({ back = null, tab = null, body, foot = '' }) {
 let waiting = 0;
 function paintNet() {
   const el = document.getElementById('net'); if (!el) return;
-  const off = navigator.onLine === false;
+  const off = net.down();
   el.hidden = !off && !waiting;
   el.className = `net ${off ? 'off' : 'up'}`;
   el.innerHTML = off
@@ -105,10 +106,11 @@ async function trySync() {
   }
 }
 outbox.onChange((k) => { waiting = k; paintNet(); });
+net.onChange((down) => { paintNet(); if (!down) trySync(); });
 addEventListener('online', () => { paintNet(); trySync(); });
 addEventListener('offline', paintNet);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') trySync(); });
-setInterval(() => { if (waiting && navigator.onLine !== false) trySync(); }, 45000);
+setInterval(() => { if (waiting && navigator.onLine !== false) trySync(); else paintNet(); }, 30000);
 const savedToast = (e, words = 'Saved') => toast(e?.pending ? `${words} on this phone · uploads when you have signal` : words);
 
 /* ---------- shared pieces ---------- */
@@ -1602,4 +1604,15 @@ sb.auth.onAuthStateChange((event, s) => {
   if (event === 'PASSWORD_RECOVERY') return go('#/password');
   if (was !== !!s && event !== 'INITIAL_SESSION') route();
 });
-auth.session().then((s) => { session = s; addEventListener('hashchange', route); route(); outbox.count().then((k) => { waiting = k; paintNet(); }); if (s) trySync(); });
+window.__dp = { sb, sync, net, outbox }; // for checking sync from the browser console
+// Start at once with the sign-in saved on this phone (no waiting on the network), then confirm it.
+let started = false;
+const start = () => { if (started) return; started = true; addEventListener('hashchange', route); route(); outbox.count().then((k) => { waiting = k; paintNet(); }); };
+try { const saved = JSON.parse(localStorage.getItem('drpocket.auth') || 'null'); if (saved?.user && saved?.refresh_token) { session = { ...saved, offline: true }; start(); } } catch { /* not signed in */ }
+auth.session().then((s) => {
+  const had = !!session;
+  if (s) session = s;
+  else if (!net.down()) session = null; // really signed out (checked with the server)
+  if (!started) start(); else if (had !== !!session) route();
+  if (session && !net.down()) trySync();
+});

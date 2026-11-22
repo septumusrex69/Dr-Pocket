@@ -14,9 +14,9 @@
 <meta name="apple-mobile-web-app-title" content="Dr Pocket">
 <link rel="icon" type="image/svg+xml" href="/brand/dr-pocket-symbol.svg">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;1,600;1,700&display=swap">
+<!-- Montserrat is served from Dr Pocket itself (public/fonts), never from Google: a stylesheet from another
+     server can hold the whole page blank on a weak signal. -->
+<link rel="preload" href="/fonts/montserrat-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script>
   // Settings → Appearance, before first paint (src/health/appearance.js; keep the key in step).
   (function () {
@@ -29,7 +29,26 @@
 </script>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><p id="boot" style="font:500 15px/1.5 system-ui,-apple-system,sans-serif;color:#5A6B7D;text-align:center;padding:40vh 24px 0;margin:0">Opening Dr Pocket…</p></div>
+<script>
+  // Never a blank page: if the app has not started after 10 seconds, say so and offer a way out.
+  (function () {
+    var err = '';
+    addEventListener('error', function (e) { err = err || (e && (e.message || (e.target && e.target.src) || 'a file could not load')); }, true);
+    setTimeout(function () {
+      if (window.__drpStarted) return;
+      var b = document.getElementById('app');
+      b.innerHTML = '<div style="font:15px/1.5 system-ui,-apple-system,sans-serif;color:#0B2342;max-width:420px;margin:0 auto;padding:30vh 24px 0;text-align:center">'
+        + '<h1 style="font-size:22px;margin:0 0 8px">Dr Pocket is taking long to open</h1>'
+        + '<p style="color:#5A6B7D;margin:0 0 18px">The signal may be too weak. You can open it without signal: what you save stays on this phone and uploads later.</p>'
+        + '<p><button id="bo" style="font:600 16px system-ui;padding:12px 18px;border:0;border-radius:12px;background:#006F7F;color:#fff">Open without signal</button></p>'
+        + '<p><button id="br" style="font:600 15px system-ui;padding:10px 16px;border:1px solid #C9D3DA;border-radius:12px;background:#fff;color:#0B2342">Try again</button></p>'
+        + (err ? '<p style="color:#8193A3;font-size:12px;margin-top:18px">Details: ' + String(err).replace(/[<>&]/g, '').slice(0, 140) + '</p>' : '') + '</div>';
+      document.getElementById('bo').onclick = function () { try { localStorage.setItem('drpocket.forceOffline', String(Date.now())); } catch (e) {} location.reload(); };
+      document.getElementById('br').onclick = function () { location.reload(); };
+    }, 10000);
+  })();
+</script>
 <script type="module" src="/src/health/app.js"></script>
 </body>
 </html>

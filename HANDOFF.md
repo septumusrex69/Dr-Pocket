@@ -100,6 +100,17 @@ Show screenshots of visual changes before going live, and keep explanations plai
   - Sign-in: without signal an expired session is kept (`auth.session()` falls back to the saved one; a refresh
     failure is not treated as a sign-out); it refreshes when signal returns. Supabase retries are off
     (`db: { retry: false, timeout: 15000 }`) because they made each offline screen wait about 7 s.
+  - **22 Nov fix (white page in the Kruger):** the phone said "online" with no usable signal, so requests hung
+    instead of failing (airplane mode fails instantly, which is why the first test worked). Now: every Supabase
+    request and sign-in call has a time limit (`timedFetch`: 9 s data, 6 s sign-in, 90 s file uploads); after a
+    failure the app works from the phone for 60 s (`net.down()`); copies served by the service worker carry
+    `x-dp-offline: 1` so the app knows; the app starts at once from the sign-in saved on the phone and checks it
+    in the background; Montserrat is served from `/public/fonts` (no Google stylesheet that can block the page);
+    `health/index.html` shows "Opening Dr Pocket…" and, after 10 s without a start, a message with "Open without
+    signal" (sets `drpocket.forceOffline` for 10 minutes) and "Try again". The service worker only keeps genuine
+    copies (camp Wi-Fi login pages are refused) and drops older copies only once the new one has the app.
+    Sync clears auth-js's 60 s refresh-failure cooldown (`lastRefreshFailure`) so uploads start as soon as signal
+    returns. `window.__dp` exposes `sb`, `sync`, `net`, `outbox` for checking from a console.
   - Not offline: creating or editing problems and routines, adding files to existing entries, reports, AI.
 - **One save, one note (20 Nov):** the old rule that joined a note saved within 15 minutes onto the previous
   note is gone (it merged two observations and overwrote the first pain score). Only an identical repeat within
