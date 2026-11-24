@@ -1,7 +1,7 @@
 # Dr Pocket: handoff
 
 Where the project stands, how it fits together, and what comes next. README.md covers running the
-3D app and rebuilding the models; this file adds the rest. Current as of 17 Nov 2026.
+3D app and rebuilding the models; this file adds the rest. Current as of 24 Nov 2026.
 
 ## At a glance
 
@@ -16,8 +16,12 @@ Where the project stands, how it fits together, and what comes next. README.md c
 - **Vercel environment variables (all sensitive):** `ANTHROPIC_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`
   (also guards usage logging). Optional, set by the owner: `ANTHROPIC_ADMIN_KEY` (credit view for all software).
   The same `CRON_SECRET` is stored in the database table `private.app_secrets` (name `cron`).
-- **Last change (18 Nov):** the new reporting feature (daily/weekly/monthly/yearly reports, two versions, patient
-  review, PDF export) and exercise routines. Deployed to main.
+- **Live on main (as of 24 Nov):** `834aa1e`, offline mode (first version), one report + For you card, petrol app
+  icon, Claude usage and credit, routines, the report-format fix.
+- **Waiting on the work branch (`cbe9ff4`), not live until the owner says "push to main":** the 22 Nov offline fix
+  for a dead-but-connected signal (time limits, instant start, self-hosted font, never a blank page). The owner hit
+  a white page in the Kruger with the live version; this is the fix. After it goes live the owner must open the
+  app once with good signal (open, wait ~10 s, close, open again, tap Timeline) before going without signal.
 - **The user's account:** one user so far (the owner). One problem, "Right Sholder" (the typo is the user's own title).
 
 ## Open items
@@ -35,13 +39,23 @@ Where the project stands, how it fits together, and what comes next. README.md c
 3. **Not checked on a real iPhone yet:** pinch-to-zoom on the pain chart, the full-width fix (pages used to be
    shrunk by Safari; see Gotchas), and the sideways (landscape) layout.
 4. **Older plan points not built:** optional auto-delete of data (never / 6 months / 1 year).
-5. **Claude usage and credit (built 18 Nov, on the preview branch until "push to main"):** to count other software
+5. **Claude usage and credit (live):** to count other software
    too, the owner must create an Admin API key in the Claude Console (Settings → Admin keys; organisation admins
    only) and add it in Vercel as `ANTHROPIC_ADMIN_KEY`. Until then the credit estimate subtracts Dr Pocket's spend
    only and says so. The owner also types the balance from the Anthropic billing page once.
-6. **Reports not yet run against the real Claude API and the real Vercel Chromium by a person:** both were tested
-   with stand-ins (see Testing). The PDF engine has a self-check: `GET /api/report-pdf?check=1` returns a sample PDF
-   with no personal data. The first real report will show whether Claude's wording stays inside the rules.
+6. **Reports:** Claude has written a real report (weekly, 13–19 Nov, 19 Nov) and the wording stayed inside the
+   rules. Vercel Chromium PDF works (`GET /api/report-pdf?check=1`). The owner has not yet made, reviewed and
+   downloaded a report from the app itself on the phone.
+7. **SQL approval prompts:** the owner wants Supabase SQL to run without asking. Claude may not add a standing allow
+   rule itself (the safety check refuses it as undermining oversight). The owner can choose **Auto** in the mode
+   menu, or commit `.claude/settings.json` with `{"permissions":{"allow":["mcp__Supabase__execute_sql",
+   "mcp__Supabase__apply_migration"]}}` themselves. The Supabase connector's own confirmation for SQL that deletes
+   data stays either way.
+8. **Logo options (20 Nov):** seven directions shown (A current, B pocket, C D-plus monogram, D pulse cross, E flat
+   cross, F talk bubble, G word mark); the owner has not chosen. Suggested B, or E to keep the current look.
+9. **Journal edits made by Claude on request:** 20 Nov the merged 08:52/09:03 notes were split; 23 Nov a date-only
+   driving note was added and extended with the owner's collarbone/neck-stretch notes (24 Nov). Keep the owner's
+   wording when doing this; the edit history keeps earlier versions.
 
 ## My health (`/health/`)
 
