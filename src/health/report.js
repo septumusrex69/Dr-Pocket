@@ -559,7 +559,7 @@ export function reportHTML(m, narrative, { audience = 'doctor', review = {}, log
   const corrBy = {};
   for (const c of cors) if (c.target?.type === 'entry') (corrBy[c.target.ref] ||= []).push(c);
   const blank = (v) => v || '<span class="nr">Not recorded</span>';
-  const tableRows = [];
+  const tableRows = []; const rowHtml = {};
   const emptyRun = [];
   const flush = () => {
     if (!emptyRun.length) return;
@@ -587,14 +587,53 @@ export function reportHTML(m, narrative, { audience = 'doctor', review = {}, log
       const ctx = [m.problems.length > 1 && !m.problem && r.problem ? r.problem : '', r.checkin ? 'End-of-day check-in' : cap(activityPhrase(e))].filter(Boolean).join(' · ');
       const pain = r.corrected ? `${r.pain != null ? `${r.pain}` : '–'} <small class="corr-n">corrected from ${r.painOriginal ?? 'not scored'}</small>` : r.pain != null ? `${r.pain}` : '<span class="nr">Not scored</span>';
       const cs = corrBy[r.ref] || [];
-      tableRows.push(`<tr id="src-${r.ref}" data-day="${r.key}"><td><b>${esc(dayWd(r.key))}</b><br>${r.timed ? r.time : '<span class="nr">Time not recorded</span>'}<span class="rid">${r.ref}</span></td><td>${blank(esc(ctx))}</td><td class="pn">${pain}</td><td>${blank(esc(resp.join('. ')))}</td><td class="orig">${e.body?.trim() ? `<div class="q">${esc(e.body.trim())}</div>` : '<span class="nr">Not recorded</span>'}${cs.map((c) => `<div class="corr">Patient correction, ${esc(dayShort(zoned(c.at, m.tz).key))}${c.status === 'pending' ? ' (not yet applied)' : ''}: ${esc(c.text)}</div>`).join('')}</td></tr>`);
+      rowHtml[r.ref] = (id = true) => `<tr${id ? ` id="src-${r.ref}"` : ''} data-day="${r.key}"><td><b>${esc(dayWd(r.key))}</b><br>${r.timed ? r.time : '<span class="nr">Time not recorded</span>'}<span class="rid">${r.ref}</span></td><td>${blank(esc(ctx))}</td><td class="pn">${pain}</td><td>${blank(esc(resp.join('. ')))}</td><td class="orig">${e.body?.trim() ? `<div class="q">${esc(e.body.trim())}</div>` : '<span class="nr">Not recorded</span>'}${cs.map((c) => `<div class="corr">Patient correction, ${esc(dayShort(zoned(c.at, m.tz).key))}${c.status === 'pending' ? ' (not yet applied)' : ''}: ${esc(c.text)}</div>`).join('')}</td></tr>`;
+      tableRows.push(rowHtml[r.ref]);
     }
   }
   flush();
-  const sec6 = `<section class="rd-sec rd-src"><h2><span>${sec5 ? '06' : '05'}</span>Chronological record</h2>
-    <p class="rd-note">Every entry in the period, oldest first. The last column is the patient’s original note, word for word; other columns come from the entry’s recorded fields. “Not recorded” and “Not scored” mark missing information, not zero pain.${s.corrected ? ' Corrected scores show the original value too.' : ''}</p>
-    ${tableRows.length ? `<table class="rd-table"><thead><tr><th>Date and time</th><th>Activity or context</th><th>Pain /10</th><th>Symptoms and response</th><th>Original patient note</th></tr></thead><tbody>${tableRows.join('')}</tbody></table>` : '<div class="rd-empty">No entries in this period.</div>'}
+  const head = '<thead><tr><th>Date and time</th><th>Activity or context</th><th>Pain /10</th><th>Symptoms and response</th><th>Original patient note</th></tr></thead>';
+  const rowsOut = (list, id = true) => list.map((x) => (typeof x === 'function' ? x(id) : x)).join('');
+  const missingNote = '“Not recorded” and “Not scored” mark missing information, not zero pain.';
+  let sec6;
+  if ((p.type === 'month' || p.type === 'year') && m.rows.length) {
+    // Monthly and yearly: a day-by-day digest and only the key entries in full, so the printout stays short.
+    // The full list stays on screen (folded) so every E-number can still be found.
+    const key = new Set([...m.events.flatMap((e) => e.refs), ...(n.attention || []).flatMap((it) => it.refs || []), ...cors.filter((c) => c.target?.type === 'entry').map((c) => c.target.ref)]);
+    const keyRows = m.rows.filter((r) => key.has(r.ref));
+    const short = (t, k = 120) => { const w = String(t || '').trim().replace(/\s+/g, ' '); return w.length > k ? `${w.slice(0, k).replace(/\s+\S*$/, '')}…` : w; };
+    const moment = (word, r) => `<div class="dm"><b>${word} ${r.pain}/10</b> ${r.timed ? `at ${r.time}` : '(time not recorded)'} <span class="rid">${r.ref}</span>${r.e.body?.trim() ? ` <span class="q">${esc(short(r.e.body))}</span>` : ''}</div>`;
+    const digestRow = (d) => {
+      const sc = d.rows.filter((r) => r.pain != null);
+      const acts = {};
+      for (const r of d.rows) for (const x of r.e.kind === 'exercise' ? [r.e.exercise?.name || 'Exercise'] : r.checkin ? [] : (r.e.activities?.length ? r.e.activities : [])) acts[x] = (acts[x] || 0) + 1;
+      const top = Object.entries(acts).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k, v]) => `${k}${v > 1 ? ` ×${v}` : ''}`).join(', ');
+      let moments = '<span class="nr">Pain not scored</span>';
+      if (sc.length) {
+        const hi = sc.reduce((b, r) => (r.pain > b.pain ? r : b));
+        const after = sc.filter((r) => r.t > hi.t);
+        const lo = after.length ? after.reduce((b, r) => (r.pain <= b.pain ? r : b)) : null;
+        moments = d.min === d.max ? `<div class="dm"><b>${sc.length > 1 ? `All ${sc.length} readings` : 'One reading'} ${d.max}/10</b></div>` : moment('Highest', hi) + (lo && lo.pain < hi.pain ? moment('Then', lo) : '');
+      }
+      const ids = d.rows.length > 1 ? `${d.rows[0].ref}–${d.rows[d.rows.length - 1].ref}` : d.rows[0].ref;
+      return `<tr data-day="${d.key}"><td><b>${esc(dayWd(d.key))}</b><span class="rid">${ids}</span></td><td>${plural(d.rows.length, 'entry', 'entries')}${d.rows.length !== sc.length ? `<br><small>${sc.length} scored</small>` : ''}</td><td class="pn">${sc.length ? `${d.min === d.max ? d.min : `${d.min}–${d.max}`}<small>avg ${d.avg}</small>` : '<span class="nr">–</span>'}</td><td>${top ? esc(top) : '<span class="nr">Not recorded</span>'}</td><td>${moments}</td></tr>`;
+    };
+    const digest = p.type === 'month' ? `<div class="rd-sub-h">Day by day</div>
+      <p class="rd-note">One row per day with entries. Pain is the lowest–highest recorded score and the day’s average; “Highest, then lowest” shows the day’s highest reading and the lowest one after it, with the start of the patient’s note. ${missingNote}</p>
+      <table class="rd-table rd-days"><thead><tr><th>Day and entries</th><th>Entries</th><th>Pain /10</th><th>Recorded with</th><th>Highest, then lowest</th></tr></thead><tbody>${m.days.filter((d) => d.rows.length).map(digestRow).join('')}</tbody></table>` : '';
+    sec6 = `<section class="rd-sec rd-src compact"><h2><span>${sec5 ? '06' : '05'}</span>Record</h2>
+      ${digest}
+      <div class="rd-sub-h">Key entries in full</div>
+      <p class="rd-note">${keyRows.length ? `The ${plural(keyRows.length, 'entry', 'entries')} behind the significant events and the points to raise${cors.length ? ', and any the patient corrected' : ''}, word for word. ` : 'No significant events in this period. '}All ${plural(m.rows.length, 'entry', 'entries')} are in the Dr Pocket journal${pdf ? '' : ' and listed below'}.${s.corrected ? ' Corrected scores show the original value too.' : ''}</p>
+      ${keyRows.length ? `<table class="rd-table rd-key">${head}<tbody>${rowsOut(keyRows.map((r) => rowHtml[r.ref]), false)}</tbody></table>` : ''}
+      ${pdf ? '' : `<details class="rd-all screen-only"><summary>All ${plural(m.rows.length, 'entry', 'entries')}, oldest first</summary><table class="rd-table">${head}<tbody>${rowsOut(tableRows)}</tbody></table></details>`}
+    </section>`;
+  } else {
+    sec6 = `<section class="rd-sec rd-src"><h2><span>${sec5 ? '06' : '05'}</span>Chronological record</h2>
+    <p class="rd-note">Every entry in the period, oldest first. The last column is the patient’s original note, word for word; other columns come from the entry’s recorded fields. ${missingNote}${s.corrected ? ' Corrected scores show the original value too.' : ''}</p>
+    ${tableRows.length ? `<table class="rd-table">${head}<tbody>${rowsOut(tableRows)}</tbody></table>` : '<div class="rd-empty">No entries in this period.</div>'}
   </section>`;
+  }
 
   return `<article class="rdoc${pdf ? ' pdf' : ''}" data-audience="${a}">
     <header class="rd-head">
@@ -737,6 +776,11 @@ export const REPORT_CSS = `
 .rd-table .corr-n{display:block;font-weight:500;font-size:.72em;color:#6B4FBB}
 .rdoc .nr{color:#8496A6;font-style:normal}
 .rd-table tr.flash td{background:#FFF3C4!important;transition:background .3s}
+.rd-days .pn small{display:block;font-weight:500;font-size:.72em;color:var(--mut)}
+.rd-days .dm{margin-bottom:4px}.rd-days .dm:last-child{margin-bottom:0}
+.rd-days .dm .rid{display:inline;margin:0 2px}
+.rd-days th:nth-child(1){width:15%}.rd-days th:nth-child(2){width:11%}.rd-days th:nth-child(3){width:10%}.rd-days th:nth-child(4){width:20%}
+.rd-all{margin-top:14px}.rd-all summary{cursor:pointer;font-weight:700;color:var(--t);padding:8px 0}
 .rd-foot{margin-top:22px;padding-top:10px;border-top:1px solid var(--ln);font-size:.74em;color:var(--mut)}
 .rd-foot p{margin:0}
 @media (min-width:640px){
@@ -761,6 +805,11 @@ export const REPORT_CSS = `
   .rd-table td:nth-child(3)::before{content:"Pain /10"}
   .rd-table .pn{font-size:1em}
   .rd-table td:nth-child(4)::before{content:"Symptoms and response"}
+  .rd-table.rd-days td:nth-child(2)::before{content:"Entries"}
+  .rd-table.rd-days td:nth-child(3)::before{content:"Pain /10"}
+  .rd-table.rd-days td:nth-child(4)::before{content:"Recorded with"}
+  .rd-table.rd-days td:nth-child(5)::before{content:"Highest, then lowest";display:block}
+  .rd-table.rd-days .pn small{display:inline;margin-left:6px}
   .rd-table td:nth-child(5)::before{content:"Original patient note"}
   .rd-table tr.gap td:nth-child(2)::before{content:none}
   .rd-table .rid{display:inline;margin-left:6px}
@@ -774,6 +823,8 @@ export const REPORT_CSS = `
 .rdoc.pdf .rd-stats{grid-template-columns:repeat(5,minmax(0,1fr))}
 .rdoc.pdf .rd-panels,.rdoc.pdf .rd-two{grid-template-columns:1fr 1fr;gap:14px}
 .rdoc.pdf .rd-src{break-before:page}
+.rdoc.pdf .rd-src.compact{break-before:auto}
+.rdoc.pdf .rd-src.compact .rd-key th:nth-child(1){width:13%}.rdoc.pdf .rd-src.compact .rd-key th:nth-child(2){width:15%}.rdoc.pdf .rd-src.compact .rd-key th:nth-child(3){width:9%}.rdoc.pdf .rd-src.compact .rd-key th:nth-child(4){width:16%}
 .rdoc.pdf .rd-src h2{margin-top:0}
 .rdoc.pdf .rd-sec{margin-top:18px}
 .rdoc.pdf .rd-logo{width:150px}

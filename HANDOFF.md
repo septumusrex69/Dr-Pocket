@@ -167,6 +167,13 @@ Show screenshots of visual changes before going live, and keep explanations plai
     (the last 7 days that have happened, so a month in progress shows the 7 days up to today); yearly = monthly average (mean of daily averages) with coverage per month and a
     monthly detail table (plus a daily chart per month on screen). Lines break across missing days and gaps over
     6 h; untimed readings sit in a "No time" column; check-ins are square markers.
+  - **Record section, monthly and yearly (25 Nov):** instead of every entry, a **Day by day** table (month only: one
+    row per day with entries, its E-number range, pain low–high and average, top activities, the day's highest reading
+    and the lowest after it with the start of the note) and **Key entries in full** (entries behind the significant
+    events, the "mention promptly" points and corrections). On screen a folded "All N entries" list keeps every
+    E-number reachable (tapping a ref opens it); the PDF leaves it out and says the full journal is in the app. The
+    section no longer forces a new PDF page. November went from 13 to 7 pages. Daily and weekly reports still list
+    every entry.
   - **Significant events** are found in code, max 4 on the charts with numbered orange badges, explained right
     below: first-ever notable symptom (tingling, numbness, weakness, swelling, spreading pain, locking), highest
     recorded pain (with what came before it, or "timing unclear" for untimed same-day activities), sleep

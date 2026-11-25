@@ -1251,7 +1251,7 @@ async function renderReport2(r) {
   $('#jump')?.addEventListener('click', () => $('#review').scrollIntoView({ behavior: 'smooth', block: 'start' }));
   const save = async (review) => { c = { ...c, review }; await reports.saveContent(id, c); };
   // Tapping a source link (E3) or a day on the month chart scrolls to the entries in the table.
-  const flash = (row) => { if (!row) return; row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1600); };
+  const flash = (row) => { if (!row) return; const fold = row.closest('details'); if (fold) fold.open = true; row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1600); };
   $('#foryou')?.addEventListener('click', (ev) => { const a = ev.target.closest('a.ref'); if (a) { ev.preventDefault(); flash($(`#src-${a.dataset.ref}`)); } });
   $('#doc').addEventListener('click', (ev) => {
     const a = ev.target.closest('a.ref'); if (a) { ev.preventDefault(); flash($(`#src-${a.dataset.ref}`)); return; }
