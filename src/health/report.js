@@ -259,7 +259,7 @@ export function buildModel({ source = [], problems = [], problemId = null, perio
   }
   if (rise && !(events.some((x) => x.type === 'peak' && x.ref === rise.b.ref))) {
     const ctx = ctxBefore(rise.b);
-    events.push({ type: 'rise', rank: 4, ref: rise.b.ref, key: rise.b.key, title: `Pain rose from ${rise.a.pain} to ${rise.b.pain}/10: ${when(rise.a)} to ${rise.b.time}`, text: ctx.text, refs: [rise.a.ref, rise.b.ref, ...ctx.refs], warm: true });
+    events.push({ type: 'rise', rank: 4, ref: rise.b.ref, key: rise.b.key, title: `Pain rose from ${rise.a.pain} to ${rise.b.pain}/10: ${when(rise.a)} to ${rise.b.key === rise.a.key ? rise.b.time : when(rise.b)}`, text: ctx.text, refs: [rise.a.ref, rise.b.ref, ...ctx.refs], warm: true });
   }
   events.sort((a, b) => a.rank - b.rank || byRef[a.ref].t - byRef[b.ref].t);
   const limit = 4;

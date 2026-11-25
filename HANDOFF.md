@@ -43,7 +43,8 @@ Where the project stands, how it fits together, and what comes next. README.md c
    too, the owner must create an Admin API key in the Claude Console (Settings → Admin keys; organisation admins
    only) and add it in Vercel as `ANTHROPIC_ADMIN_KEY`. Until then the credit estimate subtracts Dr Pocket's spend
    only and says so. The owner also types the balance from the Anthropic billing page once.
-6. **Reports:** Claude has written a real report (weekly, 13–19 Nov, 19 Nov) and the wording stayed inside the
+6. **Reports:** 25 Nov: a November monthly PDF (draft, not saved in the app) was made for the owner from their
+   journal in the sandbox, with the narrative written in-session to the same rules and schema. Claude has written a real report (weekly, 13–19 Nov, 19 Nov) and the wording stayed inside the
    rules. Vercel Chromium PDF works (`GET /api/report-pdf?check=1`). The owner has not yet made, reviewed and
    downloaded a report from the app itself on the phone.
 7. **SQL approval prompts:** the owner wants Supabase SQL to run without asking. Claude may not add a standing allow
@@ -169,7 +170,7 @@ Show screenshots of visual changes before going live, and keep explanations plai
   - **Significant events** are found in code, max 4 on the charts with numbered orange badges, explained right
     below: first-ever notable symptom (tingling, numbness, weakness, swelling, spreading pain, locking), highest
     recorded pain (with what came before it, or "timing unclear" for untimed same-day activities), sleep
-    disturbance (grouped when on many days), biggest rise of 3+ points within 24 h.
+    disturbance (grouped when on many days), biggest rise of 3+ points within 24 h (the title names both dates when the rise spans midnight; fixed 25 Nov).
   - **Report format (19 Nov fix):** the JSON schema Claude fills in defines its repeated item shapes once
     (`$defs` claim/act/seq). Written out in full, the report plus For you schema was refused by Anthropic with
     "The compiled grammar is too large" (400, shown to the user as a generic error). If that ever happens again,
