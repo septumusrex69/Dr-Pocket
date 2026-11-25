@@ -162,7 +162,8 @@ Show screenshots of visual changes before going live, and keep explanations plai
     questions and missing information → patient additions and clarifications → chronological source table.
   - **Graphs** (SVG, 0–10 always): daily = 00–24 h with real times; weekly = seven day panels ("No entries",
     "Pain not scored", "Still to come"); monthly = daily average recorded pain with lowest–highest bar, readings per
-    day and a coverage row; yearly = monthly average (mean of daily averages) with coverage per month and a
+    day and a coverage row, then (25 Nov) **the last 7 days of the month hour by hour** in the weekly day-panel style
+    (the last 7 days that have happened, so a month in progress shows the 7 days up to today); yearly = monthly average (mean of daily averages) with coverage per month and a
     monthly detail table (plus a daily chart per month on screen). Lines break across missing days and gaps over
     6 h; untimed readings sit in a "No time" column; check-ins are square markers.
   - **Significant events** are found in code, max 4 on the charts with numbered orange badges, explained right

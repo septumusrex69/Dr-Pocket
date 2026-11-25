@@ -339,9 +339,9 @@ export function dayChart(day, events, { w = 640, h = 230, big = true } = {}) {
   return `${s}</svg>`;
 }
 
-// One mini panel per day for the weekly report.
-export function weekPanels(m) {
-  return `<div class="wk">${m.days.map((d) => {
+// One mini panel per day for the weekly report (and the last 7 days of a monthly one).
+export function weekPanels(m, days = m.days) {
+  return `<div class="wk">${days.map((d) => {
     const head = `<div class="wk-h"><b>${esc(dayWd(d.key))}</b>${d.n ? `<span>${plural(d.n, 'reading')}</span>` : ''}</div>`;
     let body;
     if (d.status === 'scored') body = dayChart(d, m.events, { w: 260, h: 150, big: false });
@@ -442,7 +442,7 @@ const fmtStamp = (t, tz) => { const z = zoned(t, tz); return `${dayFull(z.key)},
 function painSection(m) {
   const t = m.period.type; const s = m.stats;
   const note = 'Pain is on a 0–10 scale. Lines connect recorded readings only: they are not continuous monitoring, and they break across missing days and gaps of more than 6 hours. Missing readings are never shown as zero.';
-  let chart = ''; let legend = '';
+  let chart = ''; let legend = ''; let last7 = '';
   const sq = (cls) => `<i class="lg ${cls}"></i>`;
   if (t === 'week') {
     chart = weekPanels(m);
@@ -458,6 +458,13 @@ function painSection(m) {
     chart = `<div class="rd-chart">${monthChart(m)}</div>`;
     if (s.daysScored < 4) chart += `<p class="rd-few">Pain was scored on only ${plural(s.daysScored, 'day')} of this month, too few to show a monthly trend.</p>`;
     legend = `<p class="rd-legend">${sq('dot')} average recorded pain that day ${sq('bar')} lowest to highest score that day · n = readings · ${sq('cov')} scored ${sq('cov-ring')} entries, no score ${sq('cov-none')} no entries${s.future ? ` ${sq('cov-fut')} still to come` : ''}</p>`;
+    // The last 7 days of the month that have already happened, each by the hour as in the weekly report.
+    const last = m.days.filter((d) => d.status !== 'future').slice(-7);
+    if (last.length) {
+      const span = last.length > 1 ? `${dayShort(last[0].key)} – ${dayShort(last[last.length - 1].key)}` : dayShort(last[0].key);
+      last7 = `<div class="rd-sub-h rd-last7">The last ${last.length > 1 ? `${last.length} days` : 'day'}, hour by hour <span>(${esc(span)})</span></div>${weekPanels(m, last)}
+      <p class="rd-legend">${sq('dot')} reading at its time ${s.checkins ? `${sq('sq')} end-of-day check-in ` : ''}${last.some((d) => d.untimed.length) ? '· “No time” column: readings without a recorded time ' : ''}· same 0–10 scale and 00:00–24:00 time axis on every day</p>`;
+    }
   } else {
     chart = `<div class="rd-chart">${yearChart(m)}</div>`;
     const sm = m.months.filter((mo) => mo.avg != null).length;
@@ -476,7 +483,7 @@ function painSection(m) {
   }
   return `<section class="rd-sec rd-pain"><h2><span>01</span>Pain ${t === 'day' ? 'over the day' : t === 'week' ? 'across the week' : t === 'month' ? 'across the month' : 'across the year'}</h2>
     <p class="rd-note">${note}${t === 'month' || t === 'year' ? ' Averages are “average recorded pain”: they describe the scores that were written down, not pain throughout the day.' : ''}</p>
-    ${chart}${legend}${evHtml}${detail}</section>`;
+    ${chart}${legend}${evHtml}${last7}${detail}</section>`;
 }
 
 function statCards(m) {
@@ -639,6 +646,8 @@ export const REPORT_CSS = `
 .rd-sec h2 span{color:var(--t);font-weight:800;font-size:.86em;letter-spacing:.04em;flex:none;white-space:nowrap}
 .rd-sec h2 span::after{content:" /";color:#9FB1BF;font-weight:600}
 .rd-sub-h{margin:16px 0 6px;font-weight:700;font-size:1em;break-after:avoid}
+.rd-sub-h span{font-weight:400;color:var(--mut)}
+.rd-last7{margin-top:22px}
 .rd-note{margin:4px 0 10px;font-size:.78em;color:var(--mut);line-height:1.45}
 .rd-legend{margin:6px 0 0;font-size:.76em;color:var(--mut);line-height:1.9}
 .rd-legend .lg{display:inline-block;vertical-align:-1px;margin:0 3px 0 6px}
